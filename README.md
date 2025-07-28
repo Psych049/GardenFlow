@@ -215,23 +215,6 @@ The application uses the following main tables:
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🆘 Support
-
-If you encounter any issues or have questions:
-
-1. Check the [Issues](../../issues) page
-2. Create a new issue with detailed information
-3. Include steps to reproduce the problem
-
-## 🔮 Roadmap
-
-- [ ] Mobile app development
-- [ ] Advanced AI-powered plant recommendations
-- [ ] Integration with weather APIs
-- [ ] Multi-language support
-- [ ] Advanced analytics dashboard
-- [ ] IoT device management interface
-
 ---
 
 **Built with ❤️ for smart gardening enthusiasts** 
