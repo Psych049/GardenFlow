@@ -12,6 +12,61 @@ CREATE TABLE IF NOT EXISTS sensor_data (
   user_id UUID REFERENCES auth.users NOT NULL
 );
 
+-- Create devices table for ESP32 management
+CREATE TABLE IF NOT EXISTS devices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  device_id TEXT UNIQUE NOT NULL,
+  device_type TEXT NOT NULL DEFAULT 'esp32',
+  status TEXT NOT NULL DEFAULT 'offline',
+  last_seen TIMESTAMPTZ DEFAULT NOW(),
+  ip_address INET,
+  mac_address TEXT,
+  firmware_version TEXT,
+  user_id UUID REFERENCES auth.users NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- Create watering_controls table
+CREATE TABLE IF NOT EXISTS watering_controls (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  zone_id UUID NOT NULL,
+  device_id UUID REFERENCES devices(id),
+  pump_pin INTEGER NOT NULL,
+  valve_pin INTEGER,
+  is_active BOOLEAN DEFAULT FALSE,
+  auto_mode BOOLEAN DEFAULT TRUE,
+  moisture_threshold DECIMAL(5,2) DEFAULT 30.0,
+  watering_duration INTEGER DEFAULT 30, -- seconds
+  last_watered TIMESTAMPTZ,
+  user_id UUID REFERENCES auth.users NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- Create watering_schedules table
+CREATE TABLE IF NOT EXISTS watering_schedules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  zone_id UUID NOT NULL,
+  name TEXT NOT NULL,
+  cron_expression TEXT NOT NULL,
+  duration INTEGER DEFAULT 30, -- seconds
+  is_active BOOLEAN DEFAULT TRUE,
+  user_id UUID REFERENCES auth.users NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- Create commands table for real-time ESP32 control
+CREATE TABLE IF NOT EXISTS commands (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id UUID REFERENCES devices(id),
+  command_type TEXT NOT NULL, -- 'pump_on', 'pump_off', 'valve_on', 'valve_off', 'auto_mode', 'manual_mode'
+  parameters JSONB,
+  status TEXT DEFAULT 'pending', -- 'pending', 'sent', 'executed', 'failed'
+  executed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  user_id UUID REFERENCES auth.users NOT NULL
+);
+
 -- Create api_keys table
 CREATE TABLE IF NOT EXISTS api_keys (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -70,6 +125,76 @@ CREATE TABLE IF NOT EXISTS zones (
   user_id UUID REFERENCES auth.users NOT NULL
 );
 
+-- Enable RLS on all tables
+ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE watering_controls ENABLE ROW LEVEL SECURITY;
+ALTER TABLE watering_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE commands ENABLE ROW LEVEL SECURITY;
+
+-- Create policies for devices
+CREATE POLICY "Users can view their own devices" 
+  ON devices FOR SELECT 
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own devices" 
+  ON devices FOR INSERT 
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own devices" 
+  ON devices FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own devices" 
+  ON devices FOR DELETE 
+  USING (auth.uid() = user_id);
+
+-- Create policies for watering_controls
+CREATE POLICY "Users can view their own watering controls" 
+  ON watering_controls FOR SELECT 
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own watering controls" 
+  ON watering_controls FOR INSERT 
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own watering controls" 
+  ON watering_controls FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own watering controls" 
+  ON watering_controls FOR DELETE 
+  USING (auth.uid() = user_id);
+
+-- Create policies for watering_schedules
+CREATE POLICY "Users can view their own watering schedules" 
+  ON watering_schedules FOR SELECT 
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own watering schedules" 
+  ON watering_schedules FOR INSERT 
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own watering schedules" 
+  ON watering_schedules FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own watering schedules" 
+  ON watering_schedules FOR DELETE 
+  USING (auth.uid() = user_id);
+
+-- Create policies for commands
+CREATE POLICY "Users can view their own commands" 
+  ON commands FOR SELECT 
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own commands" 
+  ON commands FOR INSERT 
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own commands" 
+  ON commands FOR UPDATE
+  USING (auth.uid() = user_id);
+
 -- Create stored procedures for initializing tables
 CREATE OR REPLACE FUNCTION init_sensor_data_table() RETURNS void AS $$
 BEGIN
@@ -95,6 +220,157 @@ BEGIN
     CREATE POLICY "Users can insert their own sensor data" 
       ON sensor_data FOR INSERT 
       WITH CHECK (auth.uid() = user_id);
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION init_devices_table() RETURNS void AS $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_tables WHERE tablename = 'devices') THEN
+    CREATE TABLE devices (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,
+      device_id TEXT UNIQUE NOT NULL,
+      device_type TEXT NOT NULL DEFAULT 'esp32',
+      status TEXT NOT NULL DEFAULT 'offline',
+      last_seen TIMESTAMPTZ DEFAULT NOW(),
+      ip_address INET,
+      mac_address TEXT,
+      firmware_version TEXT,
+      user_id UUID REFERENCES auth.users NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    );
+    
+    -- Enable RLS
+    ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
+
+    -- Create policies
+    CREATE POLICY "Users can view their own devices" 
+      ON devices FOR SELECT 
+      USING (auth.uid() = user_id);
+
+    CREATE POLICY "Users can insert their own devices" 
+      ON devices FOR INSERT 
+      WITH CHECK (auth.uid() = user_id);
+
+    CREATE POLICY "Users can update their own devices" 
+      ON devices FOR UPDATE
+      USING (auth.uid() = user_id);
+
+    CREATE POLICY "Users can delete their own devices" 
+      ON devices FOR DELETE 
+      USING (auth.uid() = user_id);
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION init_watering_controls_table() RETURNS void AS $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_tables WHERE tablename = 'watering_controls') THEN
+    CREATE TABLE watering_controls (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      zone_id UUID NOT NULL,
+      device_id UUID REFERENCES devices(id),
+      pump_pin INTEGER NOT NULL,
+      valve_pin INTEGER,
+      is_active BOOLEAN DEFAULT FALSE,
+      auto_mode BOOLEAN DEFAULT TRUE,
+      moisture_threshold DECIMAL(5,2) DEFAULT 30.0,
+      watering_duration INTEGER DEFAULT 30,
+      last_watered TIMESTAMPTZ,
+      user_id UUID REFERENCES auth.users NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    );
+    
+    -- Enable RLS
+    ALTER TABLE watering_controls ENABLE ROW LEVEL SECURITY;
+
+    -- Create policies
+    CREATE POLICY "Users can view their own watering controls" 
+      ON watering_controls FOR SELECT 
+      USING (auth.uid() = user_id);
+
+    CREATE POLICY "Users can insert their own watering controls" 
+      ON watering_controls FOR INSERT 
+      WITH CHECK (auth.uid() = user_id);
+
+    CREATE POLICY "Users can update their own watering controls" 
+      ON watering_controls FOR UPDATE
+      USING (auth.uid() = user_id);
+
+    CREATE POLICY "Users can delete their own watering controls" 
+      ON watering_controls FOR DELETE 
+      USING (auth.uid() = user_id);
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION init_watering_schedules_table() RETURNS void AS $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_tables WHERE tablename = 'watering_schedules') THEN
+    CREATE TABLE watering_schedules (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      zone_id UUID NOT NULL,
+      name TEXT NOT NULL,
+      cron_expression TEXT NOT NULL,
+      duration INTEGER DEFAULT 30,
+      is_active BOOLEAN DEFAULT TRUE,
+      user_id UUID REFERENCES auth.users NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    );
+    
+    -- Enable RLS
+    ALTER TABLE watering_schedules ENABLE ROW LEVEL SECURITY;
+
+    -- Create policies
+    CREATE POLICY "Users can view their own watering schedules" 
+      ON watering_schedules FOR SELECT 
+      USING (auth.uid() = user_id);
+
+    CREATE POLICY "Users can insert their own watering schedules" 
+      ON watering_schedules FOR INSERT 
+      WITH CHECK (auth.uid() = user_id);
+
+    CREATE POLICY "Users can update their own watering schedules" 
+      ON watering_schedules FOR UPDATE
+      USING (auth.uid() = user_id);
+
+    CREATE POLICY "Users can delete their own watering schedules" 
+      ON watering_schedules FOR DELETE 
+      USING (auth.uid() = user_id);
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION init_commands_table() RETURNS void AS $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_tables WHERE tablename = 'commands') THEN
+    CREATE TABLE commands (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      device_id UUID REFERENCES devices(id),
+      command_type TEXT NOT NULL,
+      parameters JSONB,
+      status TEXT DEFAULT 'pending',
+      executed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+      user_id UUID REFERENCES auth.users NOT NULL
+    );
+    
+    -- Enable RLS
+    ALTER TABLE commands ENABLE ROW LEVEL SECURITY;
+
+    -- Create policies
+    CREATE POLICY "Users can view their own commands" 
+      ON commands FOR SELECT 
+      USING (auth.uid() = user_id);
+
+    CREATE POLICY "Users can insert their own commands" 
+      ON commands FOR INSERT 
+      WITH CHECK (auth.uid() = user_id);
+
+    CREATE POLICY "Users can update their own commands" 
+      ON commands FOR UPDATE
+      USING (auth.uid() = user_id);
   END IF;
 END;
 $$ LANGUAGE plpgsql;
@@ -283,6 +559,35 @@ BEGIN
   UPDATE zones SET moisture_level = NEW.soil_moisture
   WHERE id = NEW.zone_id;
   
+  -- Check if auto watering is needed
+  INSERT INTO commands (device_id, command_type, parameters, user_id)
+  SELECT wc.device_id, 'check_watering', 
+         jsonb_build_object('moisture', NEW.soil_moisture, 'threshold', wc.moisture_threshold),
+         NEW.user_id
+  FROM watering_controls wc
+  WHERE wc.zone_id = NEW.zone_id 
+    AND wc.auto_mode = true 
+    AND wc.is_active = true
+    AND NEW.soil_moisture < wc.moisture_threshold;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create function to handle watering commands
+CREATE OR REPLACE FUNCTION handle_watering_command() 
+RETURNS TRIGGER AS $$
+BEGIN
+  -- If it's a check_watering command and moisture is below threshold
+  IF NEW.command_type = 'check_watering' AND NEW.parameters->>'moisture'::text < NEW.parameters->>'threshold'::text THEN
+    -- Create a pump_on command
+    INSERT INTO commands (device_id, command_type, parameters, user_id)
+    VALUES (NEW.device_id, 'pump_on', 
+            jsonb_build_object('duration', 
+              (SELECT watering_duration FROM watering_controls WHERE device_id = NEW.device_id LIMIT 1)), 
+            NEW.user_id);
+  END IF;
+  
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -293,8 +598,18 @@ CREATE TRIGGER sensor_data_trigger
   FOR EACH ROW
   EXECUTE FUNCTION process_sensor_data();
 
+-- Create trigger for watering command processing
+CREATE TRIGGER watering_command_trigger
+  AFTER INSERT ON commands
+  FOR EACH ROW
+  EXECUTE FUNCTION handle_watering_command();
+
 -- Execute initialization functions
 SELECT init_sensor_data_table();
+SELECT init_devices_table();
+SELECT init_watering_controls_table();
+SELECT init_watering_schedules_table();
+SELECT init_commands_table();
 SELECT init_soil_types_table();
 SELECT init_alerts_table();
 SELECT init_zones_table();

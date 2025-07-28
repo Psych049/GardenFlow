@@ -1,6 +1,7 @@
 {
   "name": "dashboard_v6",
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
