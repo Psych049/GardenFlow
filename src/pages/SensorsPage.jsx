@@ -84,6 +84,40 @@ const SensorsPage = () => {
   }, [selectedSensor, timeframe]);
 
   // Function to simulate generating real-time data
+  const handleRefresh = () => {
+    // Reload sensors and data
+    const loadSensors = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // In a real app, we would fetch from Supabase here
+        // const { data, error } = await supabase
+        //   .from('sensors')
+        //   .select('*');
+        
+        // if (error) throw error;
+        // setSensors(data || []);
+
+        // Using mock data for now
+        setSensors(mockSensors);
+        
+        // Maintain selected sensor or set first one
+        if (mockSensors.length > 0) {
+          if (!selectedSensor || !mockSensors.find(s => s.id === selectedSensor)) {
+            setSelectedSensor(mockSensors[0].id);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading sensors:', err);
+        setError('Failed to load sensors. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadSensors();
+  };
+
   const simulateSensorData = async () => {
     try {
       // Call the edge function to simulate sensor data
@@ -133,12 +167,23 @@ const SensorsPage = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className={`text-2xl font-semibold ${isDark ? 'text-white' : 'text-gray-800'}`}>Sensors</h1>
-        <button 
-          onClick={simulateSensorData}
-          className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
-        >
-          Generate Sensor Data
-        </button>
+        <div className="flex items-center space-x-3">
+          <button 
+            onClick={handleRefresh}
+            className="p-2 rounded-lg transition-colors bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600"
+            title="Refresh sensors"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+          <button 
+            onClick={simulateSensorData}
+            className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
+          >
+            Generate Sensor Data
+          </button>
+        </div>
       </div>
 
       {error && (

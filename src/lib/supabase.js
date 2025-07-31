@@ -4,8 +4,41 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Create Supabase client
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Create Supabase client with fresh connection
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true
+  },
+  db: {
+    schema: 'public'
+  },
+  global: {
+    headers: {
+      'X-Client-Info': 'supabase-js/2.x'
+    }
+  }
+});
+
+// Create a fresh client instance to clear cache
+export const createFreshClient = () => {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true
+    },
+    db: {
+      schema: 'public'
+    },
+    global: {
+      headers: {
+        'X-Client-Info': 'supabase-js/2.x'
+      }
+    }
+  });
+};
 
 // Authentication functions
 export const signIn = async (email, password) => {
@@ -32,6 +65,55 @@ export const signOut = async () => {
 export const getCurrentUser = async () => {
   const { data, error } = await supabase.auth.getUser();
   return { user: data?.user, error };
+};
+
+// Refresh schema cache - useful for resolving column not found errors
+export const refreshSchemaCache = async () => {
+  try {
+    // Create a fresh client to clear cache
+    const freshClient = createFreshClient();
+    
+    // Try a simple query to refresh the schema cache
+    const { data, error } = await freshClient
+      .from('api_keys')
+      .select('id')
+      .limit(1);
+    
+    if (error) {
+      console.warn('Schema cache refresh warning:', error);
+      return { success: false, error };
+    } else {
+      console.log('Schema cache refreshed successfully');
+      return { success: true, error: null };
+    }
+  } catch (err) {
+    console.error('Error refreshing schema cache:', err);
+    return { success: false, error: err };
+  }
+};
+
+// Force schema refresh by testing the table structure
+export const forceSchemaRefresh = async () => {
+  try {
+    const freshClient = createFreshClient();
+    
+    // Test the exact query that's failing
+    const { data, error } = await freshClient
+      .from('api_keys')
+      .select('id, name, key, created_at')
+      .limit(1);
+    
+    if (error) {
+      console.error('Schema test failed:', error);
+      return { success: false, error };
+    }
+    
+    console.log('Schema test successful:', data);
+    return { success: true, error: null };
+  } catch (err) {
+    console.error('Force schema refresh error:', err);
+    return { success: false, error: err };
+  }
 };
 
 // Initialize database schema

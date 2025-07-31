@@ -22,17 +22,21 @@
 #include <DHT.h>
 #include <WiFiClientSecure.h>
 
-// Configuration
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-const char* supabaseUrl = "YOUR_SUPABASE_URL";
-const char* supabaseAnonKey = "YOUR_SUPABASE_ANON_KEY";
-const char* apiKey = "YOUR_API_KEY"; // Generate this in your dashboard
+// WiFi Configuration
+const char* ssid = "Oppo..";
+const char* password = "alphaxyz@1234";
+
+// Supabase Configuration
+const char* supabaseUrl = "https://gqzaxkczxcudxbbkudmm.supabase.co";
+const char* supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxemF4a2N6eGN1ZHhiYmt1ZG1tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3MzcwNzEsImV4cCI6MjA2OTMxMzA3MX0.RR4jib8iRkZG1rqFpH3wuTE82BY5ViJKFR0FVvu5N4U";
+
+// Device Authentication
+const char* apiKey = "IwSjoT2a5eB53roAlmVJqMd8NZS1tuhp";
 
 // Device Configuration
 const String deviceId = "ESP32_PLANT_MONITOR_001";
 const String deviceName = "Garden Monitor 1";
-const int sensorZoneId = "ZONE_001"; // Match this with your zone configuration
+const String sensorZoneId = "ZONE_001"; // You can change this to match your zone
 
 // Pin Definitions
 #define DHT_PIN 4
@@ -59,12 +63,14 @@ int pumpDuration = 30; // seconds
 // Function Declarations
 void setupWiFi();
 void readSensors();
-void sendSensorData();
+void sendSensorData(float temperature, float humidity, float soilMoisture);
 void checkCommands();
-void executeCommand(JsonDocument& command);
+void executeCommand(JsonObject command);
 void controlPump(bool turnOn, int duration = 30);
+void reportCommandStatus(String commandId, String status);
 void updateDeviceStatus();
 void blinkLED(int times);
+void WiFiEvent(WiFiEvent_t event);
 
 void setup() {
   Serial.begin(115200);
@@ -94,7 +100,6 @@ void loop() {
   // Read sensors every SENSOR_READ_INTERVAL
   if (currentTime - lastSensorRead >= SENSOR_READ_INTERVAL) {
     readSensors();
-    sendSensorData();
     lastSensorRead = currentTime;
   }
   
@@ -121,6 +126,7 @@ void loop() {
 
 void setupWiFi() {
   Serial.print("Connecting to WiFi");
+  WiFi.onEvent(WiFiEvent);
   WiFi.begin(ssid, password);
   
   while (WiFi.status() != WL_CONNECTED) {
@@ -176,8 +182,7 @@ void sendSensorData(float temperature, float humidity, float soilMoisture) {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + String(supabaseAnonKey));
   
-  // Create JSON payload
-  JsonDocument doc;
+  StaticJsonDocument<256> doc;
   doc["sensor_id"] = sensorZoneId;
   doc["temperature"] = temperature;
   doc["humidity"] = humidity;
@@ -197,8 +202,7 @@ void sendSensorData(float temperature, float humidity, float soilMoisture) {
     Serial.println("HTTP Response code: " + String(httpResponseCode));
     Serial.println("Response: " + response);
     
-    // Parse response for irrigation needs
-    JsonDocument responseDoc;
+    StaticJsonDocument<256> responseDoc;
     deserializeJson(responseDoc, response);
     
     if (responseDoc.containsKey("irrigation_needed") && responseDoc["irrigation_needed"]) {
@@ -229,7 +233,7 @@ void checkCommands() {
     String response = http.getString();
     Serial.println("Commands response: " + response);
     
-    JsonDocument doc;
+    StaticJsonDocument<512> doc;
     deserializeJson(doc, response);
     
     if (doc.containsKey("commands")) {
@@ -244,7 +248,7 @@ void checkCommands() {
   http.end();
 }
 
-void executeCommand(JsonDocument& command) {
+void executeCommand(JsonObject command) {
   String commandType = command["command_type"];
   String commandId = command["id"];
   
@@ -260,14 +264,13 @@ void executeCommand(JsonDocument& command) {
     controlPump(false);
     success = true;
   } else if (commandType == "auto_mode") {
-    // Enable auto mode (handled by sensor readings)
+    // Enable auto mode
     success = true;
   } else if (commandType == "manual_mode") {
     // Disable auto mode
     success = true;
   }
   
-  // Report command execution status
   if (success) {
     reportCommandStatus(commandId, "executed");
   } else {
@@ -303,7 +306,7 @@ void reportCommandStatus(String commandId, String status) {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + String(supabaseAnonKey));
   
-  JsonDocument doc;
+  StaticJsonDocument<256> doc;
   doc["command_id"] = commandId;
   doc["status"] = status;
   doc["apiKey"] = apiKey;
@@ -332,7 +335,7 @@ void updateDeviceStatus() {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + String(supabaseAnonKey));
   
-  JsonDocument doc;
+  StaticJsonDocument<256> doc;
   doc["device_id"] = deviceId;
   doc["name"] = deviceName;
   doc["device_type"] = "esp32";
@@ -362,14 +365,14 @@ void blinkLED(int times) {
   }
 }
 
-// WiFi event handler
+// Updated WiFi event handler
 void WiFiEvent(WiFiEvent_t event) {
   switch (event) {
-    case SYSTEM_EVENT_STA_GOT_IP:
+    case IP_EVENT_STA_GOT_IP:
       Serial.println("Connected to WiFi and got IP");
       break;
-    case SYSTEM_EVENT_STA_DISCONNECTED:
+    case WIFI_EVENT_STA_DISCONNECTED:
       Serial.println("Disconnected from WiFi");
       break;
   }
-} 
+}

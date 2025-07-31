@@ -1,6 +1,6 @@
--- Smart Garden Dashboard Database Schema
--- This file contains the complete database schema for the Smart Garden Dashboard
--- Run this in your Supabase SQL Editor to set up the complete database
+-- COMPLETE DATABASE SETUP FOR SMART GARDEN DASHBOARD
+-- This script recreates all tables required by the dashboard
+-- Run this in your Supabase SQL Editor
 
 -- Step 1: Drop all existing tables (WARNING: This will delete all data)
 DROP TABLE IF EXISTS public.api_keys CASCADE;
@@ -21,6 +21,15 @@ DROP FUNCTION IF EXISTS handle_watering_command();
 DROP FUNCTION IF EXISTS process_pending_commands();
 DROP FUNCTION IF EXISTS update_device_health(UUID, TEXT, INET, TEXT);
 DROP FUNCTION IF EXISTS audit_table_changes();
+DROP FUNCTION IF EXISTS init_sensor_data_table();
+DROP FUNCTION IF EXISTS init_devices_table();
+DROP FUNCTION IF EXISTS init_watering_controls_table();
+DROP FUNCTION IF EXISTS init_watering_schedules_table();
+DROP FUNCTION IF EXISTS init_commands_table();
+DROP FUNCTION IF EXISTS init_soil_types_table();
+DROP FUNCTION IF EXISTS init_api_keys_table();
+DROP FUNCTION IF EXISTS init_alerts_table();
+DROP FUNCTION IF EXISTS init_zones_table();
 
 -- Step 3: Create zones table
 CREATE TABLE public.zones (
@@ -360,143 +369,4 @@ ALTER TABLE public.alerts REPLICA IDENTITY FULL;
 SELECT 'DATABASE SETUP COMPLETE' as status;
 SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema = 'public';
 SELECT COUNT(*) as function_count FROM information_schema.routines WHERE routine_schema = 'public';
-SELECT COUNT(*) as trigger_count FROM information_schema.triggers WHERE trigger_schema = 'public';
-
-
-
-
-
-
--- Extra sql queries added by me --
-
-
--- Enable Realtime for specific tables
-ALTER TABLE sensor_data REPLICA IDENTITY FULL;
-ALTER TABLE devices REPLICA IDENTITY FULL;
-ALTER TABLE commands REPLICA IDENTITY FULL;
-ALTER TABLE zones REPLICA IDENTITY FULL;
-ALTER TABLE alerts REPLICA IDENTITY FULL;
-
-
-
-
-
-
-
--- Create an audit log table
-CREATE TABLE audit_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  table_name TEXT NOT NULL,
-  operation TEXT NOT NULL,
-  record_id UUID,
-  user_id UUID REFERENCES auth.users,
-  timestamp TIMESTAMPTZ DEFAULT NOW(),
-  old_data JSONB,
-  new_data JSONB
-);
-
--- Create a generic audit trigger function
-CREATE OR REPLACE FUNCTION audit_table_changes()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO audit_logs (
-    table_name, 
-    operation, 
-    record_id, 
-    user_id, 
-    old_data, 
-    new_data
-  ) VALUES (
-    TG_TABLE_NAME,
-    TG_OP,
-    COALESCE(NEW.id, OLD.id),
-    auth.uid(),
-    CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) END,
-    CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) END
-  );
-  
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Example of applying audit trigger to a table
-CREATE TRIGGER devices_audit_trigger
-AFTER INSERT OR UPDATE OR DELETE ON devices
-FOR EACH ROW EXECUTE FUNCTION audit_table_changes();
-
-
-
-
-
-CREATE OR REPLACE FUNCTION process_pending_commands() 
-RETURNS TRIGGER AS $$
-BEGIN
-  -- Automatically create follow-up commands or handle retries
-  IF NEW.status = 'failed' AND NEW.retry_count < 3 THEN
-    INSERT INTO commands (
-      device_id, 
-      command_type, 
-      parameters, 
-      status, 
-      user_id, 
-      retry_count,
-      last_retry_at
-    )
-    VALUES (
-      NEW.device_id,
-      NEW.command_type,
-      NEW.parameters,
-      'pending',
-      NEW.user_id,
-      NEW.retry_count + 1,
-      NOW()
-    );
-  END IF;
-  
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER retry_failed_commands
-AFTER UPDATE ON commands
-FOR EACH ROW
-WHEN (NEW.status = 'failed')
-EXECUTE FUNCTION process_pending_commands();
-
-
-
-
-CREATE OR REPLACE FUNCTION update_device_health(
-  p_device_id UUID, 
-  p_status TEXT DEFAULT 'online', 
-  p_ip_address INET DEFAULT NULL,
-  p_firmware_version TEXT DEFAULT NULL
-) RETURNS VOID AS $$
-BEGIN
-  UPDATE devices 
-  SET 
-    status = p_status,
-    last_seen = NOW(),
-    ip_address = COALESCE(p_ip_address, ip_address),
-    firmware_version = COALESCE(p_firmware_version, firmware_version)
-  WHERE id = p_device_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-
-
-
--- Update commands table
-ALTER TABLE commands 
-ADD COLUMN priority INTEGER DEFAULT 0,
-ADD COLUMN retry_count INTEGER DEFAULT 0,
-ADD COLUMN last_retry_at TIMESTAMPTZ,
-ADD COLUMN error_message TEXT;
-
-
-
-
-
-
-
-
+SELECT COUNT(*) as trigger_count FROM information_schema.triggers WHERE trigger_schema = 'public'; 

@@ -1,17 +1,397 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Helmet } from "react-helmet";
-import { FiCpu, FiWifi, FiAlertCircle, FiRefreshCw, FiActivity } from "react-icons/fi";
+import { FiCpu, FiWifi, FiAlertCircle, FiRefreshCw, FiActivity, FiPower, FiPlus, FiTrash2 } from "react-icons/fi";
+import { DeviceService } from '../services/deviceService';
+import { useTheme } from '../contexts/ThemeContext';
+import { supabase, refreshSchemaCache, forceSchemaRefresh } from '../lib/supabase';
+import ApiKeyDebugger from '../components/ApiKeyDebugger';
 
 export default function SystemPage() {
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState(null);
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  
+  // State variables
+  const [devices, setDevices] = useState([]);
+  const [zones, setZones] = useState([]);
+  const [apiKeys, setApiKeys] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [showAddDevice, setShowAddDevice] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deviceToDelete, setDeviceToDelete] = useState(null);
+  const [newDevice, setNewDevice] = useState({
+    name: '',
+    device_id: '',
+    firmware_version: 'v1.0.0',
+    zone_id: ''
+  });
 
-  // Simulate refreshing sensor data
-  const handleRefreshData = async () => {
-    setRefreshing(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setRefreshing(false);
-    setLastRefreshed(new Date());
+  // Load data on component mount
+  useEffect(() => {
+    console.log('SystemPage mounted - loading data...');
+    loadAllData();
+  }, []);
+
+  const loadAllData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      console.log('Loading all data...');
+      await Promise.all([
+        loadDevices(),
+        loadZones(),
+        loadApiKeys()
+      ]);
+    } catch (err) {
+      console.error('Error loading data:', err);
+      setError('Failed to load data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadDevices = async () => {
+    try {
+      console.log('Loading devices...');
+      const devices = await DeviceService.fetchDevices();
+      console.log('Devices loaded:', devices);
+      setDevices(devices);
+    } catch (err) {
+      console.error('Error loading devices:', err);
+      throw err;
+    }
+  };
+
+  const loadZones = async () => {
+    try {
+      console.log('Loading zones...');
+      const zones = await DeviceService.fetchZones();
+      console.log('Zones loaded:', zones);
+      setZones(zones);
+    } catch (err) {
+      console.error('Error loading zones:', err);
+      throw err;
+    }
+  };
+
+  const loadApiKeys = async () => {
+    try {
+      console.log('Loading API keys...');
+      const apiKeys = await DeviceService.fetchApiKeys();
+      console.log('API keys loaded:', apiKeys);
+      setApiKeys(apiKeys);
+    } catch (err) {
+      console.error('Error loading API keys:', err);
+      throw err;
+    }
+  };
+
+  const handleAddDevice = async () => {
+    try {
+      if (!newDevice.name || !newDevice.device_id || !newDevice.zone_id) {
+        setError('Please fill in all required fields including zone selection');
+        return;
+      }
+      
+      setLoading(true);
+      setError(null);
+      
+      console.log('Adding device:', newDevice);
+      
+      // Create the device
+      const createdDevice = await DeviceService.createDevice(newDevice);
+      
+      if (!createdDevice) {
+        throw new Error('Failed to create device');
+      }
+      
+      // Generate API key for the device
+      const apiKeyName = `${newDevice.name} API Key`;
+      await DeviceService.generateApiKey(createdDevice.id, apiKeyName);
+      
+      setShowAddDevice(false);
+      setNewDevice({ name: '', device_id: '', firmware_version: 'v1.0.0', zone_id: '' });
+      await loadAllData();
+      
+      // Show success message
+      alert('Device added successfully! Check the API Keys section below for your device configuration.');
+    } catch (err) {
+      console.error('Error adding device:', err);
+      setError('Failed to add device: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateZone = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('Creating default zone...');
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        setError('Please log in first');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('zones')
+        .insert([{
+          name: 'Garden Zone 1',
+          description: 'Default garden zone for ESP32 device',
+          soil_type: 'Loamy',
+          moisture_threshold: 40,
+          user_id: user.id,
+          pump_on: false
+        }])
+        .select();
+
+      if (error) {
+        console.error('Error creating zone:', error);
+        setError('Failed to create zone: ' + error.message);
+        return;
+      }
+
+      console.log('Zone created:', data);
+      await loadZones();
+      alert('Zone created successfully! You can now select it from the dropdown.');
+    } catch (err) {
+      console.error('Error in zone creation:', err);
+      setError('Failed to create zone: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteApiKey = async (apiKeyId) => {
+    try {
+      if (confirm('Are you sure you want to delete this API key?')) {
+        setLoading(true);
+        setError(null);
+        
+        await DeviceService.deleteApiKey(apiKeyId);
+        await loadApiKeys();
+        alert('API key deleted successfully!');
+      }
+    } catch (err) {
+      console.error('Error deleting API key:', err);
+      setError('Failed to delete API key: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateTestDevice = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // First create a zone if none exist
+      if (zones.length === 0) {
+        await handleCreateZone();
+        await loadZones();
+      }
+      
+      // Create a test device
+      const testDevice = {
+        name: 'Test ESP32 Device',
+        device_id: 'ESP32_TEST_' + Date.now(),
+        firmware_version: 'v1.0.0',
+        zone_id: zones[0]?.id || ''
+      };
+      
+      console.log('Creating test device:', testDevice);
+      const createdDevice = await DeviceService.createDevice(testDevice);
+      
+      if (createdDevice) {
+        // Generate API key for the test device
+        const apiKeyName = `${testDevice.name} API Key`;
+        await DeviceService.generateApiKey(createdDevice.id, apiKeyName);
+      }
+      
+      await loadAllData();
+      alert('Test device created successfully! Check the API Keys section below.');
+    } catch (err) {
+      console.error('Error creating test device:', err);
+      setError('Failed to create test device: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerateApiKeyForDevice = async (deviceId) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      await DeviceService.generateApiKeyForDevice(deviceId);
+      await loadApiKeys();
+      alert('API key generated successfully! Check the API Keys section below.');
+    } catch (err) {
+      console.error('Error generating API key for device:', err);
+      
+      // Check if it's a schema issue
+      if (err.message.includes('key') && err.message.includes('column')) {
+        setError(`Database schema issue detected. Please run the following SQL in your Supabase dashboard:
+        
+1. Go to your Supabase project SQL editor
+2. Run the schema fix script from: raw_data/fix_api_keys_schema.sql
+3. Or run this command:
+   CREATE TABLE IF NOT EXISTS api_keys (
+     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     name TEXT NOT NULL,
+     key TEXT UNIQUE NOT NULL,
+     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+     user_id UUID REFERENCES auth.users NOT NULL
+   );`);
+      } else {
+        setError('Failed to generate API key: ' + (err.message || 'Unknown error'));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegenerateApiKey = async (apiKeyId, deviceName) => {
+    try {
+      if (confirm('Are you sure you want to regenerate this API key? The old key will be invalidated.')) {
+        setLoading(true);
+        setError(null);
+        
+        // Find the device by name
+        const device = devices.find(d => d.name === deviceName.replace(' API Key', ''));
+        if (!device) {
+          setError('Device not found');
+          return;
+        }
+        
+        await DeviceService.regenerateApiKeyForDevice(device.id);
+        await loadApiKeys();
+        alert('API key regenerated successfully!');
+      }
+    } catch (err) {
+      console.error('Error regenerating API key:', err);
+      setError('Failed to regenerate API key: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTestApiKey = async (apiKey) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const result = await DeviceService.testApiKey(apiKey);
+      
+      if (result.valid) {
+        alert('API key is valid and working!');
+      } else {
+        setError('API key test failed: ' + result.error);
+      }
+    } catch (err) {
+      console.error('Error testing API key:', err);
+      setError('Failed to test API key: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('Copied to clipboard!');
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      setError('Failed to copy to clipboard');
+    }
+  };
+
+  const hasApiKeyForDevice = (deviceName) => {
+    return apiKeys.some(apiKey => apiKey.name.includes(deviceName));
+  };
+
+  const handleDeleteDevice = async (deviceId, deviceName) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Delete the device
+      await DeviceService.deleteDevice(deviceId);
+      
+      // Reload data
+      await loadAllData();
+      
+      alert(`Device "${deviceName}" deleted successfully!`);
+    } catch (err) {
+      console.error('Error deleting device:', err);
+      setError('Failed to delete device: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmDeleteDevice = (deviceId, deviceName) => {
+    setDeviceToDelete({ id: deviceId, name: deviceName });
+    setShowDeleteConfirm(true);
+  };
+
+  const executeDeleteDevice = async () => {
+    if (!deviceToDelete) return;
+    
+    await handleDeleteDevice(deviceToDelete.id, deviceToDelete.name);
+    setShowDeleteConfirm(false);
+    setDeviceToDelete(null);
+  };
+
+  const handleRefreshDevice = async (deviceId) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Get current device info
+      const device = devices.find(d => d.id === deviceId);
+      if (!device) {
+        setError('Device not found');
+        return;
+      }
+      
+      // Update device status to trigger a refresh
+      await DeviceService.updateDeviceStatus(deviceId, device.status === 'online' ? 'offline' : 'online');
+      
+      // Reload devices
+      await loadDevices();
+      
+      alert(`Device "${device.name}" status refreshed!`);
+    } catch (err) {
+      console.error('Error refreshing device:', err);
+      setError('Failed to refresh device: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRefreshSchema = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('Forcing schema refresh...');
+      const result = await forceSchemaRefresh();
+      
+      if (result.success) {
+        await loadAllData();
+        alert('Schema cache refreshed successfully! Try creating a device now.');
+      } else {
+        setError('Schema refresh failed: ' + (result.error?.message || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('Error refreshing schema:', err);
+      setError('Failed to refresh schema: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -19,140 +399,446 @@ export default function SystemPage() {
       <Helmet>
         <title>System | Smart Garden Watering System</title>
       </Helmet>
+      
       <div className="space-y-6">
         <h1 className="text-3xl font-bold">System</h1>
-        <div className="grid gap-6 md:grid-cols-2">
-          {/* ESP32 Status Card */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 flex flex-col">
-            <div className="mb-4">
-              <div className="flex items-center text-lg font-semibold mb-1">
-                <FiCpu className="mr-2 h-5 w-5" /> ESP32 Status
-              </div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Hardware device status and information</div>
+        
+        {/* Error Display */}
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+            <div className="flex items-center">
+              <FiAlertCircle className="h-5 w-5 text-red-400 mr-2" />
+              <p className="text-red-800 dark:text-red-200">{error}</p>
             </div>
-            <div className="flex-1 space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Connection Status:</span>
-                <span className="px-2 py-1 rounded bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-medium">Connected</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Signal Strength:</span>
-                <div className="flex items-center">
-                  <FiWifi className="mr-1 h-4 w-4 text-green-600" />
-                  <span>Strong</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Firmware Version:</span>
-                <span className="text-sm">v1.2.0</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Uptime:</span>
-                <span className="text-sm">3d 7h 12m</span>
-              </div>
-            </div>
-            <button className="mt-6 w-full py-2 rounded border border-gray-300 dark:border-gray-600 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-700 transition text-sm font-medium" type="button">
-              Restart Device
+            <button 
+              onClick={() => setError(null)} 
+              className="mt-2 text-sm text-red-600 dark:text-red-400 hover:underline"
+            >
+              Dismiss
             </button>
           </div>
-          {/* Sensor Status Card */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 flex flex-col">
-            <div className="mb-4">
-              <div className="flex items-center text-lg font-semibold mb-1">
-                <FiActivity className="mr-2 h-5 w-5" /> Sensor Status
-              </div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Connected sensors information</div>
-            </div>
-            <div className="flex-1 space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Temperature Sensor:</span>
-                <span className="px-2 py-1 rounded bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-medium">Active</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Humidity Sensor:</span>
-                <span className="px-2 py-1 rounded bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-medium">Active</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Soil Moisture Sensor:</span>
-                <span className="px-2 py-1 rounded bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-medium">Active</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Water Flow Meter:</span>
-                <span className="px-2 py-1 rounded bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-medium">Active</span>
-              </div>
-            </div>
-            <button className="mt-6 w-full py-2 rounded border border-gray-300 dark:border-gray-600 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-700 transition text-sm font-medium flex items-center justify-center" type="button" disabled={refreshing} onClick={handleRefreshData}>
-              {refreshing ? (
-                <>
-                  <FiRefreshCw className="mr-2 h-4 w-4 animate-spin" /> Refreshing...
-                </>
-              ) : (
-                <>
-                  <FiRefreshCw className="mr-2 h-4 w-4" /> Refresh Sensor Data
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-        {/* Last refreshed info */}
-        {lastRefreshed && (
-          <p className="text-sm text-gray-500 dark:text-gray-400">Last refreshed: {lastRefreshed.toLocaleString()}</p>
         )}
-        {/* System Info */}
-        <div className="flex items-start gap-3 bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400 dark:border-yellow-600 rounded-md p-4 mt-4">
-          <FiAlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-1" />
-          <div>
-            <div className="font-semibold">System Information</div>
-            <div className="text-sm">
-              <p>This is a simulation of an ESP32-based Smart Garden Watering System.</p>
-              <p className="mt-2">In a real deployment, this page would display actual ESP32 device information, sensor readings, and provide controls for firmware updates and diagnostics.</p>
-              <p className="mt-2"><strong>Hardware Components:</strong> ESP32, DHT11 temperature sensor, soil moisture sensor, DC 5V water pump</p>
+        
+        {/* Loading Indicator */}
+        {loading && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <div className="flex items-center">
+              <FiRefreshCw className="h-5 w-5 text-blue-400 mr-2 animate-spin" />
+              <p className="text-blue-800 dark:text-blue-200">Loading...</p>
             </div>
           </div>
+        )}
+        
+        {/* Debug Info */}
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+          <h3 className="font-semibold text-yellow-800 dark:text-yellow-200 mb-2">Debug Information</h3>
+          <div className="text-sm text-yellow-700 dark:text-yellow-300 space-y-1">
+            <p>Zones loaded: {zones.length}</p>
+            <p>Devices loaded: {devices.length}</p>
+            <p>API Keys loaded: {apiKeys.length}</p>
+            <p>Modal open: {showAddDevice ? 'Yes' : 'No'}</p>
+            <p>Zone names: {zones.map(z => z.name).join(', ') || 'None'}</p>
+            <p>API Key names: {apiKeys.map(k => k.name).join(', ') || 'None'}</p>
+          </div>
+          <div className="mt-2 space-x-2">
+            <button 
+              onClick={loadZones} 
+              className="px-2 py-1 bg-blue-500 text-white rounded text-xs"
+            >
+              Reload Zones
+            </button>
+            <button 
+              onClick={loadApiKeys} 
+              className="px-2 py-1 bg-green-500 text-white rounded text-xs"
+            >
+              Reload API Keys
+            </button>
+            <button 
+              onClick={handleRefreshSchema} 
+              className="px-2 py-1 bg-purple-500 text-white rounded text-xs"
+            >
+              Refresh Schema
+            </button>
+            <button 
+              onClick={() => setShowAddDevice(true)} 
+              className="px-2 py-1 bg-purple-500 text-white rounded text-xs"
+            >
+              Open Modal
+            </button>
+            <button 
+              onClick={handleCreateZone} 
+              className="px-2 py-1 bg-orange-500 text-white rounded text-xs"
+            >
+              Create Test Zone
+            </button>
+            <button 
+              onClick={handleCreateTestDevice} 
+              className="px-2 py-1 bg-red-500 text-white rounded text-xs"
+            >
+              Create Test Device
+            </button>
+          </div>
         </div>
-        {/* ESP32 Code Information */}
-        <div className="rounded-md bg-gray-100 dark:bg-slate-900 p-4 mt-6">
-          <h3 className="mb-2 text-sm font-medium">ESP32 Code Sample</h3>
-          <pre className="overflow-auto rounded-md bg-slate-950 p-4 text-xs text-slate-50">
-{`// ESP32 Arduino Sample Code
-#include <WiFi.h>
-#include <DHT.h>
-#include <PubSubClient.h>
 
-// Pin definitions
-#define DHTPIN 4
-#define MOISTURE_PIN 32
-#define PUMP_PIN 13
-#define DHTTYPE DHT11
+        {/* API Key Debugger */}
+        <ApiKeyDebugger />
 
-// Initialize components
-DHT dht(DHTPIN, DHTTYPE);
+        {/* Add Device Button */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold">Device Management</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Add and manage your ESP32 devices</p>
+            </div>
+            <button
+              onClick={() => setShowAddDevice(true)}
+              disabled={loading}
+              className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              <FiPlus className="mr-2 h-4 w-4" />
+              Add Device
+            </button>
+          </div>
+        </div>
 
-void setup() {
-  pinMode(PUMP_PIN, OUTPUT);
-  dht.begin();
-  setupWiFi();
-  setupMQTT();
-}
+        {/* Add Device Modal */}
+        {showAddDevice && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-4">Add New Device</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Device Name</label>
+                  <input
+                    type="text"
+                    value={newDevice.name}
+                    onChange={(e) => setNewDevice(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    placeholder="e.g., Garden Monitor 1"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">Device ID</label>
+                  <input
+                    type="text"
+                    value={newDevice.device_id}
+                    onChange={(e) => setNewDevice(prev => ({ ...prev, device_id: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    placeholder="e.g., ESP32_PLANT_MONITOR_001"
+                  />
+              </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">Firmware Version</label>
+                  <input
+                    type="text"
+                    value={newDevice.firmware_version}
+                    onChange={(e) => setNewDevice(prev => ({ ...prev, firmware_version: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    placeholder="e.g., v1.0.0"
+                  />
+            </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">Zone</label>
+                  {zones.length > 0 ? (
+                    <select
+                      value={newDevice.zone_id}
+                      onChange={(e) => setNewDevice(prev => ({ ...prev, zone_id: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    >
+                      <option value="">Select a zone</option>
+                      {zones.map((zone) => (
+                        <option key={zone.id} value={zone.id}>
+                          {zone.name} ({zone.soil_type})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-xs text-red-500">No zones available. Create a zone first:</p>
+                      <button
+                        type="button"
+                        onClick={handleCreateZone}
+                        className="w-full px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition text-sm"
+                      >
+                        Create Default Zone
+                      </button>
+              </div>
+                  )}
+              </div>
+              </div>
+              
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={() => setShowAddDevice(false)}
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddDevice}
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition disabled:opacity-50"
+                >
+                  {loading ? 'Adding...' : 'Add Device'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
-void loop() {
-  // Read sensors
-  float temperature = dht.readTemperature();
-  float humidity = dht.readHumidity();
-  int moisture = readMoisture();
-  
-  // Send data to server
-  sendSensorData(temperature, humidity, moisture);
-  
-  // Check for commands
-  checkPumpCommands();
-  
-  delay(10000);  // 10 second interval
-}`}
-          </pre>
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">This is a simplified code example. In a production environment, additional error handling, power management, and failsafe mechanisms would be implemented.</p>
+        {/* API Keys Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold mb-1">Device Configuration</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">API keys and configuration data for your ESP32 devices</p>
+            </div>
+            <button
+              onClick={loadApiKeys}
+              disabled={loading}
+              className="flex items-center px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition disabled:opacity-50"
+            >
+              <FiRefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+          
+          {apiKeys.length > 0 ? (
+            <div className="space-y-4">
+              {apiKeys.map((apiKey) => (
+                <div key={apiKey.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="font-medium text-gray-900 dark:text-white">
+                        {apiKey.name}
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        Created: {new Date(apiKey.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => handleRegenerateApiKey(apiKey.id, apiKey.name)}
+                        disabled={loading}
+                        className="text-orange-500 hover:text-orange-700 transition disabled:opacity-50"
+                        title="Regenerate API key"
+                      >
+                        <FiRefreshCw className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteApiKey(apiKey.id)}
+                        disabled={loading}
+                        className="text-red-500 hover:text-red-700 transition disabled:opacity-50"
+                        title="Delete API key"
+                      >
+                        <FiTrash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        API Key (for ESP32 code)
+                      </label>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="text"
+                          value={apiKey.key}
+                          readOnly
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono"
+                        />
+                        <button
+                          onClick={() => copyToClipboard(apiKey.key)}
+                          disabled={loading}
+                          className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition text-sm disabled:opacity-50"
+                        >
+                          Copy
+                        </button>
+                        <button
+                          onClick={() => handleTestApiKey(apiKey.key)}
+                          disabled={loading}
+                          className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition text-sm disabled:opacity-50"
+                        >
+                          Test
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Supabase Configuration
+                        </label>
+                        <div className="bg-gray-50 dark:bg-gray-900 rounded-md p-3 text-sm font-mono">
+                          <div>const char* supabaseUrl = "https://gqzaxkczxcudxbbkudmm.supabase.co";</div>
+                          <div>const char* supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxemF4a2N6eGN1ZHhiYmt1ZG1tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3MzcwNzEsImV4cCI6MjA2OTMxMzA3MX0.RR4jib8iRkZG1rqFpH3wuTE82BY5ViJKFR0FVvu5N4U";</div>
+                          <div>const char* apiKey = "{apiKey.key}";</div>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          ESP32 Code Template
+                        </label>
+                        <div className="bg-gray-50 dark:bg-gray-900 rounded-md p-3 text-sm font-mono">
+                          <div>// Include your API key</div>
+                          <div>const char* apiKey = "{apiKey.key}";</div>
+                          <div>// Use in HTTP headers</div>
+                          <div>headers["apikey"] = apiKey;</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <FiCpu className="mx-auto h-12 w-12 text-gray-400" />
+              <p className="mt-2 text-sm text-gray-500">No API keys found</p>
+              <p className="text-xs text-gray-400">Add a device to generate API keys for ESP32 configuration</p>
+            </div>
+          )}
+        </div>
+
+        {/* Connected Devices Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold mb-1">Connected Devices</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">ESP32 devices registered to your account</p>
+            </div>
+            <button
+              onClick={loadDevices}
+              disabled={loading}
+              className="flex items-center px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              <FiRefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh All
+            </button>
+          </div>
+          
+          {devices.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {devices.map((device) => (
+                <div key={device.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-medium text-gray-900 dark:text-white">{device.name}</h3>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      device.status === 'online' 
+                        ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                    }`}>
+                      {device.status}
+                    </span>
+                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                    <p>ID: {device.device_id}</p>
+                    <p>Last seen: {new Date(device.last_seen).toLocaleString()}</p>
+                    {device.firmware_version && (
+                      <p>Firmware: {device.firmware_version}</p>
+                    )}
+                    {device.ip_address && (
+                      <p>IP: {device.ip_address}</p>
+                    )}
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 space-y-2">
+                    {hasApiKeyForDevice(device.name) ? (
+                      <div className="flex items-center justify-center text-green-600 dark:text-green-400 text-sm">
+                        <FiActivity className="mr-1 h-4 w-4" />
+                        API Key Available
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleGenerateApiKeyForDevice(device.device_id)}
+                        disabled={loading}
+                        className="w-full px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition text-sm disabled:opacity-50"
+                      >
+                        Generate API Key
+                      </button>
+                    )}
+                    
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => handleRefreshDevice(device.id)}
+                        disabled={loading}
+                        className="flex-1 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition text-sm disabled:opacity-50 flex items-center justify-center"
+                        title="Refresh device status"
+                      >
+                        <FiRefreshCw className="h-4 w-4 mr-1" />
+                        Refresh
+                      </button>
+                      <button
+                        onClick={() => confirmDeleteDevice(device.id, device.name)}
+                        disabled={loading}
+                        className="flex-1 px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition text-sm disabled:opacity-50 flex items-center justify-center"
+                        title="Delete device"
+                      >
+                        <FiTrash2 className="h-4 w-4 mr-1" />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <FiCpu className="mx-auto h-12 w-12 text-gray-400" />
+              <p className="mt-2 text-sm text-gray-500">No devices found</p>
+              <p className="text-xs text-gray-400">Add your first ESP32 device to get started</p>
+            </div>
+          )}
         </div>
       </div>
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && deviceToDelete && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+              <div className="flex items-center mb-4">
+                <FiAlertCircle className="h-6 w-6 text-red-500 mr-3" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Delete Device</h3>
+              </div>
+              
+              <p className="text-gray-600 dark:text-gray-300 mb-4">
+                Are you sure you want to delete the device <strong>"{deviceToDelete.name}"</strong>?
+              </p>
+              
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-4">
+                <p className="text-sm text-red-700 dark:text-red-300">
+                  <strong>Warning:</strong> This action cannot be undone and will also delete any associated API keys.
+                </p>
+              </div>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setDeviceToDelete(null);
+                  }}
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={executeDeleteDevice}
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition disabled:opacity-50"
+                >
+                  {loading ? 'Deleting...' : 'Delete Device'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
     </>
   );
 } 

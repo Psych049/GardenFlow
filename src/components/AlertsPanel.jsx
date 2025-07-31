@@ -1,11 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
-import { systemAlerts } from '../data/mockData';
+import DataService from '../services/dataService';
 
 const AlertsPanel = () => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
-  const [alerts, setAlerts] = useState(systemAlerts);
+  const [alerts, setAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    loadAlerts();
+  }, []);
+
+  const loadAlerts = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const alertsData = await DataService.getAlerts();
+      setAlerts(alertsData);
+    } catch (err) {
+      console.error('Error loading alerts:', err);
+      setError('Failed to load alerts');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getBadgeColor = (type) => {
     if (isDark) {
@@ -52,15 +73,71 @@ const AlertsPanel = () => {
     }
   };
 
-  const dismissAlert = (index) => {
-    const updatedAlerts = [...alerts];
-    updatedAlerts.splice(index, 1);
-    setAlerts(updatedAlerts);
+  const dismissAlert = async (alertId) => {
+    try {
+      await DataService.markAlertAsRead(alertId);
+      // Remove from local state
+      setAlerts(prevAlerts => prevAlerts.filter(alert => alert.id !== alertId));
+    } catch (err) {
+      console.error('Error dismissing alert:', err);
+    }
   };
 
-  const clearAllAlerts = () => {
-    setAlerts([]);
+  const clearAllAlerts = async () => {
+    try {
+      // Mark all alerts as read
+      await Promise.all(alerts.map(alert => DataService.markAlertAsRead(alert.id)));
+      setAlerts([]);
+    } catch (err) {
+      console.error('Error clearing alerts:', err);
+    }
   };
+
+  const formatTimeAgo = (timestamp) => {
+    const now = new Date();
+    const alertTime = new Date(timestamp);
+    const diffInMinutes = Math.floor((now - alertTime) / (1000 * 60));
+    
+    if (diffInMinutes < 1) return 'Just now';
+    if (diffInMinutes < 60) return `${diffInMinutes} min ago`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)} hour${Math.floor(diffInMinutes / 60) > 1 ? 's' : ''} ago`;
+    return `${Math.floor(diffInMinutes / 1440)} day${Math.floor(diffInMinutes / 1440) > 1 ? 's' : ''} ago`;
+  };
+
+  if (loading) {
+    return (
+      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-lg shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>System Alerts</h2>
+        </div>
+        <div className="flex items-center justify-center py-6">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-lg shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>System Alerts</h2>
+          <button 
+            onClick={loadAlerts}
+            className={`text-sm hover:text-gray-700 transition-colors ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Retry
+          </button>
+        </div>
+        <div className="text-center py-6">
+          <svg className={`h-12 w-12 mx-auto ${isDark ? 'text-gray-600' : 'text-gray-300'} mb-4`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className={`${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-lg shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
@@ -85,21 +162,32 @@ const AlertsPanel = () => {
         </div>
       ) : (
         <ul className="space-y-3">
-          {alerts.map((alert, index) => (
-            <li key={index} className={`${getBadgeColor(alert.type)} rounded-lg p-4 flex items-start`}>
+          {alerts.map((alert) => (
+            <li key={alert.id} className={`${getBadgeColor(alert.type)} rounded-lg p-4 flex items-start`}>
               <div className="flex-shrink-0 mr-3">
                 {getIcon(alert.type)}
               </div>
               <div className="flex-1">
                 <div className="flex items-center justify-between">
                   <div className="font-medium">{alert.zone}</div>
-                  <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{alert.timeAgo}</div>
+                  <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {formatTimeAgo(alert.timestamp)}
+                  </div>
                 </div>
                 <div className="text-sm mt-1">{alert.message}</div>
+                {alert.severity && (
+                  <div className={`text-xs mt-2 px-2 py-1 rounded-full inline-block ${
+                    alert.severity === 'high' ? 'bg-red-200 text-red-800' :
+                    alert.severity === 'medium' ? 'bg-yellow-200 text-yellow-800' :
+                    'bg-blue-200 text-blue-800'
+                  }`}>
+                    {alert.severity} priority
+                  </div>
+                )}
               </div>
               <button 
                 className={`ml-3 transition-colors ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-400 hover:text-gray-600'}`}
-                onClick={() => dismissAlert(index)}
+                onClick={() => dismissAlert(alert.id)}
               >
                 <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
