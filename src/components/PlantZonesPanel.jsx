@@ -42,7 +42,7 @@ const PlantZonesPanel = () => {
 
   if (loading) {
     return (
-      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-lg shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-xl shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
         <h2 className={`text-lg font-medium mb-4 ${isDark ? 'text-white' : 'text-gray-800'}`}>Plant Zones</h2>
         <div className="flex items-center justify-center py-6">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500"></div>
@@ -53,7 +53,7 @@ const PlantZonesPanel = () => {
 
   if (error) {
     return (
-      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-lg shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-xl shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
         <div className="flex justify-between items-center mb-4">
           <h2 className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>Plant Zones</h2>
           <button 
@@ -74,7 +74,7 @@ const PlantZonesPanel = () => {
   }
 
   return (
-    <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-lg shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+    <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-xl shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
       <div className="flex justify-between items-center mb-4">
         <h2 className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>Plant Zones</h2>
         <button 

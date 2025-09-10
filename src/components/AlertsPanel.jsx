@@ -106,7 +106,7 @@ const AlertsPanel = () => {
 
   if (loading) {
     return (
-      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-lg shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-xl shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
         <div className="flex justify-between items-center mb-4">
           <h2 className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>System Alerts</h2>
         </div>
@@ -119,7 +119,7 @@ const AlertsPanel = () => {
 
   if (error) {
     return (
-      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-lg shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+      <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-xl shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
         <div className="flex justify-between items-center mb-4">
           <h2 className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>System Alerts</h2>
           <button 
@@ -140,7 +140,7 @@ const AlertsPanel = () => {
   }
 
   return (
-    <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-lg shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+    <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-xl shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
       <div className="flex justify-between items-center mb-4">
         <h2 className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>System Alerts</h2>
         {alerts.length > 0 && (
@@ -163,7 +163,7 @@ const AlertsPanel = () => {
       ) : (
         <ul className="space-y-3">
           {alerts.map((alert) => (
-            <li key={alert.id} className={`${getBadgeColor(alert.type)} rounded-lg p-4 flex items-start`}>
+            <li key={alert.id} className={`${getBadgeColor(alert.type)} rounded-xl p-4 flex items-start`}>
               <div className="flex-shrink-0 mr-3">
                 {getIcon(alert.type)}
               </div>

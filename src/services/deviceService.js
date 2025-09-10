@@ -1,31 +1,24 @@
-import { supabase, createFreshClient } from '../lib/supabase';
+import { supabase, handleSupabaseError } from '../lib/supabase';
 
-// Device Service for managing ESP32 devices
+// Device Service for managing ESP32 devices with real-time capabilities
 export class DeviceService {
   
-  // Get a fresh client instance
-  static getFreshClient() {
-    return createFreshClient();
-  }
-
   // Fetch all devices for the current user
   static async fetchDevices() {
     try {
-      const client = this.getFreshClient();
-      const { data: { user }, error: userError } = await client.auth.getUser();
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('devices')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Error fetching devices:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error fetching devices:', handledError);
+        throw handledError;
       }
       
       return data || [];
@@ -38,11 +31,8 @@ export class DeviceService {
   // Create a new device
   static async createDevice(deviceData) {
     try {
-      const client = this.getFreshClient();
-      const { data: { user }, error: userError } = await client.auth.getUser();
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
       // Check if device_id already exists
       const existingDevice = await this.getDeviceByDeviceId(deviceData.device_id);
@@ -50,7 +40,7 @@ export class DeviceService {
         throw new Error('Device ID already exists');
       }
 
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('devices')
         .insert([{
           name: deviceData.name,
@@ -62,14 +52,16 @@ export class DeviceService {
           firmware_version: deviceData.firmware_version,
           user_id: user.id
         }])
-        .select();
+        .select()
+        .single();
 
       if (error) {
-        console.error('Error creating device:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error creating device:', handledError);
+        throw handledError;
       }
       
-      const createdDevice = data?.[0] || null;
+      const createdDevice = data;
       
       // Automatically generate API key for the device
       if (createdDevice) {
@@ -93,7 +85,6 @@ export class DeviceService {
   // Update device status (heartbeat)
   static async updateDeviceStatus(deviceId, status, ipAddress = null) {
     try {
-      const client = this.getFreshClient();
       const updateData = {
         status,
         last_seen: new Date().toISOString()
@@ -103,18 +94,20 @@ export class DeviceService {
         updateData.ip_address = ipAddress;
       }
 
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('devices')
         .update(updateData)
         .eq('id', deviceId)
-        .select();
+        .select()
+        .single();
 
       if (error) {
-        console.error('Error updating device status:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error updating device status:', handledError);
+        throw handledError;
       }
       
-      return data?.[0] || null;
+      return data;
     } catch (error) {
       console.error('Error in updateDeviceStatus:', error);
       throw error;
@@ -124,30 +117,27 @@ export class DeviceService {
   // Delete a device
   static async deleteDevice(deviceId) {
     try {
-      const client = this.getFreshClient();
-      const { data: { user }, error: userError } = await client.auth.getUser();
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
       // Get device info first
-      const device = await client
+      const { data: device, error: deviceError } = await supabase
         .from('devices')
         .select('name')
         .eq('id', deviceId)
         .eq('user_id', user.id)
         .single();
 
-      if (!device.data) {
+      if (deviceError || !device) {
         throw new Error('Device not found or access denied');
       }
 
       // Delete associated API keys first
-      const { error: apiKeyError } = await client
+      const { error: apiKeyError } = await supabase
         .from('api_keys')
         .delete()
         .eq('user_id', user.id)
-        .ilike('name', `%${device.data.name}%`);
+        .ilike('name', `%${device.name}%`);
 
       if (apiKeyError) {
         console.error('Error deleting associated API keys:', apiKeyError);
@@ -155,15 +145,16 @@ export class DeviceService {
       }
 
       // Delete the device
-      const { error } = await client
+      const { error } = await supabase
         .from('devices')
         .delete()
         .eq('id', deviceId)
         .eq('user_id', user.id);
 
       if (error) {
-        console.error('Error deleting device:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error deleting device:', handledError);
+        throw handledError;
       }
       
       return true;
@@ -176,16 +167,20 @@ export class DeviceService {
   // Get device by device_id
   static async getDeviceByDeviceId(deviceId) {
     try {
-      const client = this.getFreshClient();
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('devices')
         .select('*')
         .eq('device_id', deviceId)
         .single();
 
       if (error) {
-        console.error('Error fetching device by device_id:', error);
-        throw error;
+        // Return null if device not found (not an error)
+        if (error.code === 'PGRST116') {
+          return null;
+        }
+        const handledError = handleSupabaseError(error);
+        console.error('Error fetching device by device_id:', handledError);
+        throw handledError;
       }
       
       return data;
@@ -198,8 +193,7 @@ export class DeviceService {
   // Get latest sensor data for a device
   static async getLatestSensorData(deviceId) {
     try {
-      const client = this.getFreshClient();
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('sensor_data')
         .select(`
           *,
@@ -213,8 +207,9 @@ export class DeviceService {
         .limit(1);
 
       if (error) {
-        console.error('Error fetching latest sensor data:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error fetching latest sensor data:', handledError);
+        throw handledError;
       }
       
       return data?.[0] || null;
@@ -227,13 +222,10 @@ export class DeviceService {
   // Send command to device
   static async sendCommand(deviceId, commandType, parameters = {}) {
     try {
-      const client = this.getFreshClient();
-      const { data: { user }, error: userError } = await client.auth.getUser();
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('commands')
         .insert([{
           device_id: deviceId,
@@ -242,14 +234,16 @@ export class DeviceService {
           status: 'pending',
           user_id: user.id
         }])
-        .select();
+        .select()
+        .single();
 
       if (error) {
-        console.error('Error sending command:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error sending command:', handledError);
+        throw handledError;
       }
       
-      return data?.[0] || null;
+      return data;
     } catch (error) {
       console.error('Error in sendCommand:', error);
       throw error;
@@ -259,8 +253,7 @@ export class DeviceService {
   // Get pending commands for a device
   static async getPendingCommands(deviceId) {
     try {
-      const client = this.getFreshClient();
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('commands')
         .select('*')
         .eq('device_id', deviceId)
@@ -268,8 +261,9 @@ export class DeviceService {
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.error('Error fetching pending commands:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error fetching pending commands:', handledError);
+        throw handledError;
       }
       
       return data || [];
@@ -282,24 +276,25 @@ export class DeviceService {
   // Update command status
   static async updateCommandStatus(commandId, status, executedAt = null) {
     try {
-      const client = this.getFreshClient();
       const updateData = {
         status,
         executed_at: executedAt || new Date().toISOString()
       };
 
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('commands')
         .update(updateData)
         .eq('id', commandId)
-        .select();
+        .select()
+        .single();
 
       if (error) {
-        console.error('Error updating command status:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error updating command status:', handledError);
+        throw handledError;
       }
       
-      return data?.[0] || null;
+      return data;
     } catch (error) {
       console.error('Error in updateCommandStatus:', error);
       throw error;
@@ -361,15 +356,19 @@ export class DeviceService {
   // Get zones for dropdown
   static async fetchZones() {
     try {
-      const client = this.getFreshClient();
-      const { data, error } = await client
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      const { data, error } = await supabase
         .from('zones')
         .select('id, name, description, soil_type')
+        .eq('user_id', user.id)
         .order('name', { ascending: true });
 
       if (error) {
-        console.error('Error fetching zones:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error fetching zones:', handledError);
+        throw handledError;
       }
       
       return data || [];
@@ -382,27 +381,26 @@ export class DeviceService {
   // Create a new zone
   static async createZone(zoneData) {
     try {
-      const client = this.getFreshClient();
-      const { data: { user }, error: userError } = await client.auth.getUser();
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('zones')
         .insert([{
           ...zoneData,
           user_id: user.id,
           pump_on: false
         }])
-        .select();
+        .select()
+        .single();
 
       if (error) {
-        console.error('Error creating zone:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error creating zone:', handledError);
+        throw handledError;
       }
       
-      return data?.[0] || null;
+      return data;
     } catch (error) {
       console.error('Error in createZone:', error);
       throw error;
@@ -412,13 +410,10 @@ export class DeviceService {
   // Fetch API keys for the current user
   static async fetchApiKeys() {
     try {
-      const client = this.getFreshClient();
-      const { data: { user }, error: userError } = await client.auth.getUser();
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('api_keys')
         .select(`
           id,
@@ -430,8 +425,9 @@ export class DeviceService {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Error fetching API keys:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error fetching API keys:', handledError);
+        throw handledError;
       }
       
       return data || [];
@@ -441,51 +437,33 @@ export class DeviceService {
     }
   }
 
-  // Generate API key for a device (with fallback for schema issues)
+  // Generate API key for a device
   static async generateApiKey(deviceId, keyName) {
     try {
-      const client = this.getFreshClient();
-      const { data: { user }, error: userError } = await client.auth.getUser();
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
       // Generate a random API key
       const apiKey = 'sk_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
-      // Try the standard approach first
-      try {
-        const { data, error } = await client
-          .from('api_keys')
-          .insert([{
-            name: keyName,
-            key: apiKey,
-            user_id: user.id
-          }])
-          .select();
+      const { data, error } = await supabase
+        .from('api_keys')
+        .insert([{
+          name: keyName,
+          key: apiKey,
+          user_id: user.id,
+          is_active: true
+        }])
+        .select()
+        .single();
 
-        if (error) {
-          console.error('Error with standard API key generation:', error);
-          throw error;
-        }
-        
-        return data?.[0] || null;
-      } catch (schemaError) {
-        console.warn('Schema cache issue detected, trying alternative approach:', schemaError);
-        
-        // Fallback: Use RPC call to create API key
-        const { data, error } = await client.rpc('create_api_key', {
-          key_name: keyName,
-          key_value: apiKey
-        });
-
-        if (error) {
-          console.error('Error with RPC API key generation:', error);
-          throw new Error('Failed to generate API key. Please check your database schema.');
-        }
-        
-        return data;
+      if (error) {
+        const handledError = handleSupabaseError(error);
+        console.error('Error with API key generation:', handledError);
+        throw handledError;
       }
+      
+      return data;
     } catch (error) {
       console.error('Error in generateApiKey:', error);
       throw error;
@@ -495,14 +473,11 @@ export class DeviceService {
   // Generate API key for existing device
   static async generateApiKeyForDevice(deviceId) {
     try {
-      const client = this.getFreshClient();
-      const { data: { user }, error: userError } = await client.auth.getUser();
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
       // Get device info by UUID (not device_id string)
-      const { data: device, error: deviceError } = await client
+      const { data: device, error: deviceError } = await supabase
         .from('devices')
         .select('id, name, device_id')
         .eq('id', deviceId)
@@ -514,7 +489,7 @@ export class DeviceService {
       }
 
       // Check if device already has an API key
-      const { data: existingKeys, error: checkError } = await client
+      const { data: existingKeys, error: checkError } = await supabase
         .from('api_keys')
         .select('id')
         .eq('user_id', user.id)
@@ -531,21 +506,24 @@ export class DeviceService {
       // Generate a random API key
       const apiKey = 'sk_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('api_keys')
         .insert([{
           name: `${device.name} API Key`,
           key: apiKey,
-          user_id: user.id
+          user_id: user.id,
+          is_active: true
         }])
-        .select();
+        .select()
+        .single();
 
       if (error) {
-        console.error('Error generating API key:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error generating API key:', handledError);
+        throw handledError;
       }
       
-      return data?.[0] || null;
+      return data;
     } catch (error) {
       console.error('Error in generateApiKeyForDevice:', error);
       throw error;
@@ -555,15 +533,15 @@ export class DeviceService {
   // Delete API key
   static async deleteApiKey(apiKeyId) {
     try {
-      const client = this.getFreshClient();
-      const { error } = await client
+      const { error } = await supabase
         .from('api_keys')
         .delete()
         .eq('id', apiKeyId);
 
       if (error) {
-        console.error('Error deleting API key:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error deleting API key:', handledError);
+        throw handledError;
       }
       
       return true;
@@ -576,14 +554,11 @@ export class DeviceService {
   // Regenerate API key for device (delete old and create new)
   static async regenerateApiKeyForDevice(deviceId) {
     try {
-      const client = this.getFreshClient();
-      const { data: { user }, error: userError } = await client.auth.getUser();
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
       // Get device info by UUID (not device_id string)
-      const { data: device, error: deviceError } = await client
+      const { data: device, error: deviceError } = await supabase
         .from('devices')
         .select('id, name, device_id')
         .eq('id', deviceId)
@@ -595,7 +570,7 @@ export class DeviceService {
       }
 
       // Delete existing API keys for this device
-      const { error: deleteError } = await client
+      const { error: deleteError } = await supabase
         .from('api_keys')
         .delete()
         .eq('user_id', user.id)
@@ -608,21 +583,24 @@ export class DeviceService {
       // Generate a new API key
       const apiKey = 'sk_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('api_keys')
         .insert([{
           name: `${device.name} API Key`,
           key: apiKey,
-          user_id: user.id
+          user_id: user.id,
+          is_active: true
         }])
-        .select();
+        .select()
+        .single();
 
       if (error) {
-        console.error('Error generating new API key:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error generating new API key:', handledError);
+        throw handledError;
       }
       
-      return data?.[0] || null;
+      return data;
     } catch (error) {
       console.error('Error in regenerateApiKeyForDevice:', error);
       throw error;
@@ -632,14 +610,11 @@ export class DeviceService {
   // Test API key validity
   static async testApiKey(apiKey) {
     try {
-      const client = this.getFreshClient();
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('devices')
         .select('id, name')
         .limit(1)
-        .headers({
-          'apikey': apiKey
-        });
+        .eq('api_key', apiKey);
 
       if (error) {
         return { valid: false, error: error.message };
@@ -648,6 +623,65 @@ export class DeviceService {
       return { valid: true, data };
     } catch (error) {
       return { valid: false, error: error.message };
+    }
+  }
+
+  // Real-time subscription for devices
+  static subscribeToDevices(callback) {
+    if (!supabase) {
+      console.error('Cannot create subscription: Supabase client not initialized');
+      return null;
+    }
+
+    const subscription = supabase
+      .channel('devices_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'devices'
+        },
+        (payload) => {
+          console.log('Device change:', payload);
+          callback(payload);
+        }
+      )
+      .subscribe();
+
+    return subscription;
+  }
+
+  // Real-time subscription for sensor data
+  static subscribeToSensorData(callback) {
+    if (!supabase) {
+      console.error('Cannot create subscription: Supabase client not initialized');
+      return null;
+    }
+
+    const subscription = supabase
+      .channel('sensor_data_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'sensor_data'
+        },
+        (payload) => {
+          console.log('Sensor data change:', payload);
+          callback(payload);
+        }
+      )
+      .subscribe();
+
+    return subscription;
+  }
+
+  // Unsubscribe from real-time updates
+  static unsubscribe(subscription) {
+    if (subscription && supabase) {
+      supabase.removeChannel(subscription);
     }
   }
 } 

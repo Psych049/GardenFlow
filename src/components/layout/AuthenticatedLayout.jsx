@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -9,6 +9,30 @@ const AuthenticatedLayout = () => {
   const { user, loading } = useAuth();
   const { theme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Close sidebar when window is resized to larger screens
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) { // lg breakpoint
+        setSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Close sidebar when route changes on mobile
+  useEffect(() => {
+    const closeSidebarOnRouteChange = () => {
+      if (window.innerWidth < 1024) { // lg breakpoint
+        setSidebarOpen(false);
+      }
+    };
+
+    // We'll use a simple approach for now, but in a real app you might want to listen to route changes
+    closeSidebarOnRouteChange();
+  }, []);
 
   if (loading) {
     return (
@@ -28,12 +52,12 @@ const AuthenticatedLayout = () => {
       <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
       
       {/* Main Layout Container */}
-      <div className="flex flex-1">
+      <div className="flex flex-1 lg:h-[calc(100vh-4rem)]">
         {/* Sidebar */}
         <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
         
         {/* Main Content Area */}
-        <main className={`flex-1 overflow-y-auto ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-transparent'}`}>
+        <main className={`flex-1 overflow-y-auto ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-transparent'} lg:h-[calc(100vh-4rem)]`}>
           <div className="p-4 sm:p-6 min-h-full">
             <Outlet />
           </div>

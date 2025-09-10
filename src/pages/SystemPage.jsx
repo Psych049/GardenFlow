@@ -1,14 +1,15 @@
 import { useState, useEffect } from "react";
 import { Helmet } from "react-helmet";
-import { FiCpu, FiWifi, FiAlertCircle, FiRefreshCw, FiActivity, FiPower, FiPlus, FiTrash2 } from "react-icons/fi";
+import { FiCpu, FiWifi, FiAlertCircle, FiRefreshCw, FiActivity, FiPower, FiPlus, FiTrash2, FiCheck, FiInfo } from "react-icons/fi";
 import { DeviceService } from '../services/deviceService';
 import { useTheme } from '../contexts/ThemeContext';
-import { supabase, refreshSchemaCache, forceSchemaRefresh } from '../lib/supabase';
-import ApiKeyDebugger from '../components/ApiKeyDebugger';
+import { supabase, forceSchemaRefresh } from '../lib/supabase';
 
 export default function SystemPage() {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
+  // Only show debug info in development
+  const isDevelopment = import.meta.env.DEV;
   
   // State variables
   const [devices, setDevices] = useState([]);
@@ -16,22 +17,20 @@ export default function SystemPage() {
   const [apiKeys, setApiKeys] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const [showAddDevice, setShowAddDevice] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deviceToDelete, setDeviceToDelete] = useState(null);
+  const [hiddenApiKeys, setHiddenApiKeys] = useState(new Set());
   const [newDevice, setNewDevice] = useState({
     name: '',
     device_id: '',
     firmware_version: 'v1.0.0',
     zone_id: ''
   });
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
 
-  // Load data on component mount
-  useEffect(() => {
-    console.log('SystemPage mounted - loading data...');
-    loadAllData();
-  }, []);
-
+ 
   const loadAllData = async () => {
     setLoading(true);
     setError(null);
@@ -114,7 +113,7 @@ export default function SystemPage() {
       await loadAllData();
       
       // Show success message
-      alert('Device added successfully! Check the API Keys section below for your device configuration.');
+      showSuccessMessage('Device added successfully! Check the API Keys section below for your device configuration.');
     } catch (err) {
       console.error('Error adding device:', err);
       setError('Failed to add device: ' + (err.message || 'Unknown error'));
@@ -155,7 +154,7 @@ export default function SystemPage() {
 
       console.log('Zone created:', data);
       await loadZones();
-      alert('Zone created successfully! You can now select it from the dropdown.');
+      showSuccessMessage('Zone created successfully! You can now select it from the dropdown.');
     } catch (err) {
       console.error('Error in zone creation:', err);
       setError('Failed to create zone: ' + (err.message || 'Unknown error'));
@@ -172,7 +171,7 @@ export default function SystemPage() {
         
         await DeviceService.deleteApiKey(apiKeyId);
         await loadApiKeys();
-        alert('API key deleted successfully!');
+        showSuccessMessage('API key deleted successfully!');
       }
     } catch (err) {
       console.error('Error deleting API key:', err);
@@ -211,7 +210,7 @@ export default function SystemPage() {
       }
       
       await loadAllData();
-      alert('Test device created successfully! Check the API Keys section below.');
+      showSuccessMessage('Test device created successfully! Check the API Keys section below.');
     } catch (err) {
       console.error('Error creating test device:', err);
       setError('Failed to create test device: ' + (err.message || 'Unknown error'));
@@ -227,7 +226,7 @@ export default function SystemPage() {
       
       await DeviceService.generateApiKeyForDevice(deviceId);
       await loadApiKeys();
-      alert('API key generated successfully! Check the API Keys section below.');
+      showSuccessMessage('API key generated successfully! Check the API Keys section below.');
     } catch (err) {
       console.error('Error generating API key for device:', err);
       
@@ -268,7 +267,7 @@ export default function SystemPage() {
         
         await DeviceService.regenerateApiKeyForDevice(device.id);
         await loadApiKeys();
-        alert('API key regenerated successfully!');
+        showSuccessMessage('API key regenerated successfully!');
       }
     } catch (err) {
       console.error('Error regenerating API key:', err);
@@ -286,7 +285,7 @@ export default function SystemPage() {
       const result = await DeviceService.testApiKey(apiKey);
       
       if (result.valid) {
-        alert('API key is valid and working!');
+        showSuccessMessage('API key is valid and working!');
       } else {
         setError('API key test failed: ' + result.error);
       }
@@ -301,11 +300,23 @@ export default function SystemPage() {
   const copyToClipboard = async (text) => {
     try {
       await navigator.clipboard.writeText(text);
-      alert('Copied to clipboard!');
+      showSuccessMessage('Copied to clipboard!');
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
       setError('Failed to copy to clipboard');
     }
+  };
+
+  const toggleApiKeyVisibility = (apiKeyId) => {
+    setHiddenApiKeys(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(apiKeyId)) {
+        newSet.delete(apiKeyId);
+      } else {
+        newSet.add(apiKeyId);
+      }
+      return newSet;
+    });
   };
 
   const hasApiKeyForDevice = (deviceName) => {
@@ -323,7 +334,7 @@ export default function SystemPage() {
       // Reload data
       await loadAllData();
       
-      alert(`Device "${deviceName}" deleted successfully!`);
+      showSuccessMessage(`Device "${deviceName}" deleted successfully!`);
     } catch (err) {
       console.error('Error deleting device:', err);
       setError('Failed to delete device: ' + (err.message || 'Unknown error'));
@@ -363,7 +374,7 @@ export default function SystemPage() {
       // Reload devices
       await loadDevices();
       
-      alert(`Device "${device.name}" status refreshed!`);
+      showSuccessMessage(`Device "${device.name}" status refreshed!`);
     } catch (err) {
       console.error('Error refreshing device:', err);
       setError('Failed to refresh device: ' + (err.message || 'Unknown error'));
@@ -382,7 +393,7 @@ export default function SystemPage() {
       
       if (result.success) {
         await loadAllData();
-        alert('Schema cache refreshed successfully! Try creating a device now.');
+        showSuccessMessage('Schema cache refreshed successfully! Try creating a device now.');
       } else {
         setError('Schema refresh failed: ' + (result.error?.message || 'Unknown error'));
       }
@@ -418,6 +429,22 @@ export default function SystemPage() {
             </button>
           </div>
         )}
+
+        {/* Success Display */}
+        {success && (
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+            <div className="flex items-center">
+              <FiCheck className="h-5 w-5 text-green-400 mr-2" />
+              <p className="text-green-800 dark:text-green-200">{success}</p>
+            </div>
+            <button 
+              onClick={() => setSuccess(null)} 
+              className="mt-2 text-sm text-green-600 dark:text-green-400 hover:underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         
         {/* Loading Indicator */}
         {loading && (
@@ -429,59 +456,71 @@ export default function SystemPage() {
           </div>
         )}
         
-        {/* Debug Info */}
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-          <h3 className="font-semibold text-yellow-800 dark:text-yellow-200 mb-2">Debug Information</h3>
-          <div className="text-sm text-yellow-700 dark:text-yellow-300 space-y-1">
-            <p>Zones loaded: {zones.length}</p>
-            <p>Devices loaded: {devices.length}</p>
-            <p>API Keys loaded: {apiKeys.length}</p>
-            <p>Modal open: {showAddDevice ? 'Yes' : 'No'}</p>
-            <p>Zone names: {zones.map(z => z.name).join(', ') || 'None'}</p>
-            <p>API Key names: {apiKeys.map(k => k.name).join(', ') || 'None'}</p>
-          </div>
-          <div className="mt-2 space-x-2">
-            <button 
-              onClick={loadZones} 
-              className="px-2 py-1 bg-blue-500 text-white rounded text-xs"
+        {/* Debug Toggle Button - Only show in development */}
+        {isDevelopment && (
+          <div className="flex justify-end">
+            <button
+              onClick={() => setShowDebugInfo(!showDebugInfo)}
+              className="flex items-center px-3 py-1 text-xs font-medium text-white bg-yellow-500 hover:bg-yellow-600 rounded-md transition"
             >
-              Reload Zones
-            </button>
-            <button 
-              onClick={loadApiKeys} 
-              className="px-2 py-1 bg-green-500 text-white rounded text-xs"
-            >
-              Reload API Keys
-            </button>
-            <button 
-              onClick={handleRefreshSchema} 
-              className="px-2 py-1 bg-purple-500 text-white rounded text-xs"
-            >
-              Refresh Schema
-            </button>
-            <button 
-              onClick={() => setShowAddDevice(true)} 
-              className="px-2 py-1 bg-purple-500 text-white rounded text-xs"
-            >
-              Open Modal
-            </button>
-            <button 
-              onClick={handleCreateZone} 
-              className="px-2 py-1 bg-orange-500 text-white rounded text-xs"
-            >
-              Create Test Zone
-            </button>
-            <button 
-              onClick={handleCreateTestDevice} 
-              className="px-2 py-1 bg-red-500 text-white rounded text-xs"
-            >
-              Create Test Device
+              <FiInfo className="mr-1 h-3 w-3" />
+              {showDebugInfo ? 'Hide' : 'Show'} Debug
             </button>
           </div>
-        </div>
-
-        {/* API Key Debugger */}
-        <ApiKeyDebugger />
+        )}
+        
+        {/* Debug Info - Only show in development and when toggled */}
+        {isDevelopment && showDebugInfo && (
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+            <h3 className="font-semibold text-yellow-800 dark:text-yellow-200 mb-2">Debug Information</h3>
+            <div className="text-sm text-yellow-700 dark:text-yellow-300 space-y-1">
+              <p>Zones loaded: {zones.length}</p>
+              <p>Devices loaded: {devices.length}</p>
+              <p>API Keys loaded: {apiKeys.length}</p>
+              <p>Modal open: {showAddDevice ? 'Yes' : 'No'}</p>
+              <p>Zone names: {zones.map(z => z.name).join(', ') || 'None'}</p>
+              <p>API Key names: {apiKeys.map(k => k.name).join(', ') || 'None'}</p>
+            </div>
+            <div className="mt-2 space-x-2">
+              <button 
+                onClick={loadZones} 
+                className="px-2 py-1 bg-blue-500 text-white rounded text-xs"
+              >
+                Reload Zones
+              </button>
+              <button 
+                onClick={loadApiKeys} 
+                className="px-2 py-1 bg-green-500 text-white rounded text-xs"
+              >
+                Reload API Keys
+              </button>
+              <button 
+                onClick={handleRefreshSchema} 
+                className="px-2 py-1 bg-purple-500 text-white rounded text-xs"
+              >
+                Refresh Schema
+              </button>
+              <button 
+                onClick={() => setShowAddDevice(true)} 
+                className="px-2 py-1 bg-purple-500 text-white rounded text-xs"
+              >
+                Open Modal
+              </button>
+              <button 
+                onClick={handleCreateZone} 
+                className="px-2 py-1 bg-orange-500 text-white rounded text-xs"
+              >
+                Create Test Zone
+              </button>
+              <button 
+                onClick={handleCreateTestDevice} 
+                className="px-2 py-1 bg-red-500 text-white rounded text-xs"
+              >
+                Create Test Device
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Add Device Button */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
@@ -592,8 +631,8 @@ export default function SystemPage() {
         )}
 
         {/* API Keys Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <div>
               <h2 className="text-lg font-semibold mb-1">Device Configuration</h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">API keys and configuration data for your ESP32 devices</p>
@@ -601,7 +640,7 @@ export default function SystemPage() {
             <button
               onClick={loadApiKeys}
               disabled={loading}
-              className="flex items-center px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition disabled:opacity-50"
+              className="flex items-center justify-center px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition disabled:opacity-50 w-full sm:w-auto"
             >
               <FiRefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -611,13 +650,13 @@ export default function SystemPage() {
           {apiKeys.length > 0 ? (
             <div className="space-y-4">
               {apiKeys.map((apiKey) => (
-                <div key={apiKey.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h3 className="font-medium text-gray-900 dark:text-white">
+                <div key={apiKey.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 sm:p-6 transition-all duration-200 hover:shadow-md">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                    <div className="flex-1">
+                      <h3 className="font-medium text-gray-900 dark:text-white text-base">
                         {apiKey.name}
                       </h3>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                         Created: {new Date(apiKey.created_at).toLocaleString()}
                       </p>
                     </div>
@@ -625,73 +664,104 @@ export default function SystemPage() {
                       <button
                         onClick={() => handleRegenerateApiKey(apiKey.id, apiKey.name)}
                         disabled={loading}
-                        className="text-orange-500 hover:text-orange-700 transition disabled:opacity-50"
+                        className="p-2 text-orange-500 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-md transition disabled:opacity-50"
                         title="Regenerate API key"
+                        aria-label="Regenerate API key"
                       >
                         <FiRefreshCw className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => handleDeleteApiKey(apiKey.id)}
                         disabled={loading}
-                        className="text-red-500 hover:text-red-700 transition disabled:opacity-50"
+                        className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition disabled:opacity-50"
                         title="Delete API key"
+                        aria-label="Delete API key"
                       >
                         <FiTrash2 className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
                   
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         API Key (for ESP32 code)
                       </label>
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="text"
-                          value={apiKey.key}
-                          readOnly
-                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono"
-                        />
-                        <button
-                          onClick={() => copyToClipboard(apiKey.key)}
-                          disabled={loading}
-                          className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition text-sm disabled:opacity-50"
-                        >
-                          Copy
-                        </button>
-                        <button
-                          onClick={() => handleTestApiKey(apiKey.key)}
-                          disabled={loading}
-                          className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition text-sm disabled:opacity-50"
-                        >
-                          Test
-                        </button>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <div className="flex-1 relative">
+                          <input
+                            type={hiddenApiKeys.has(apiKey.id) ? "password" : "text"}
+                            value={apiKey.key}
+                            readOnly
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono pr-10 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                            aria-label="API key value"
+                          />
+                          <button
+                            onClick={() => toggleApiKeyVisibility(apiKey.id)}
+                            className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded transition"
+                            title={hiddenApiKeys.has(apiKey.id) ? "Show API key" : "Hide API key"}
+                            aria-label={hiddenApiKeys.has(apiKey.id) ? "Show API key" : "Hide API key"}
+                          >
+                            {hiddenApiKeys.has(apiKey.id) ? <FiEye className="h-4 w-4" /> : <FiEyeOff className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => copyToClipboard(apiKey.key)}
+                            disabled={loading}
+                            className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition text-sm disabled:opacity-50 flex items-center justify-center min-w-[60px]"
+                            aria-label="Copy API key to clipboard"
+                          >
+                            Copy
+                          </button>
+                          <button
+                            onClick={() => handleTestApiKey(apiKey.key)}
+                            disabled={loading}
+                            className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition text-sm disabled:opacity-50 flex items-center justify-center min-w-[60px]"
+                            aria-label="Test API key"
+                          >
+                            Test
+                          </button>
+                        </div>
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           Supabase Configuration
                         </label>
-                        <div className="bg-gray-50 dark:bg-gray-900 rounded-md p-3 text-sm font-mono">
-                          <div>const char* supabaseUrl = "https://gqzaxkczxcudxbbkudmm.supabase.co";</div>
-                          <div>const char* supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxemF4a2N6eGN1ZHhiYmt1ZG1tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3MzcwNzEsImV4cCI6MjA2OTMxMzA3MX0.RR4jib8iRkZG1rqFpH3wuTE82BY5ViJKFR0FVvu5N4U";</div>
-                          <div>const char* apiKey = "{apiKey.key}";</div>
+                        <div className="bg-gray-50 dark:bg-gray-900 rounded-md p-3 text-sm font-mono overflow-x-auto">
+                          <div className="text-blue-600 dark:text-blue-400">const char* supabaseUrl = "https://gqzaxkczxcudxbbkudmm.supabase.co";</div>
+                          <div className="text-purple-600 dark:text-purple-400">const char* supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxemF4a2N6eGN1ZHhiYmt1ZG1tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3MzcwNzEsImV4cCI6MjA2OTMxMzA3MX0.RR4jib8iRkZG1rqFpH3wuTE82BY5ViJKFR0FVvu5N4U";</div>
+                          <div className="text-green-600 dark:text-green-400">const char* apiKey = "{apiKey.key}";</div>
                         </div>
+                        <button
+                          onClick={() => copyToClipboard(`const char* supabaseUrl = "https://gqzaxkczxcudxbbkudmm.supabase.co";\nconst char* supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxemF4a2N6eGN1ZHhiYmt1ZG1tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3MzcwNzEsImV4cCI6MjA2OTMxMzA3MX0.RR4jib8iRkZG1rqFpH3wuTE82BY5ViJKFR0FVvu5N4U";\nconst char* apiKey = "${apiKey.key}";`)}
+                          className="mt-2 px-2 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700 transition"
+                          aria-label="Copy Supabase configuration"
+                        >
+                          Copy Config
+                        </button>
                       </div>
                       
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           ESP32 Code Template
                         </label>
-                        <div className="bg-gray-50 dark:bg-gray-900 rounded-md p-3 text-sm font-mono">
-                          <div>// Include your API key</div>
-                          <div>const char* apiKey = "{apiKey.key}";</div>
-                          <div>// Use in HTTP headers</div>
-                          <div>headers["apikey"] = apiKey;</div>
+                        <div className="bg-gray-50 dark:bg-gray-900 rounded-md p-3 text-sm font-mono overflow-x-auto">
+                          <div className="text-gray-500 dark:text-gray-400">// Include your API key</div>
+                          <div className="text-green-600 dark:text-green-400">const char* apiKey = "{apiKey.key}";</div>
+                          <div className="text-gray-500 dark:text-gray-400">// Use in HTTP headers</div>
+                          <div className="text-blue-600 dark:text-blue-400">headers["apikey"] = apiKey;</div>
                         </div>
+                        <button
+                          onClick={() => copyToClipboard(`// Include your API key\nconst char* apiKey = "${apiKey.key}";\n// Use in HTTP headers\nheaders["apikey"] = apiKey;`)}
+                          className="mt-2 px-2 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700 transition"
+                          aria-label="Copy ESP32 code template"
+                        >
+                          Copy Template
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -701,8 +771,8 @@ export default function SystemPage() {
           ) : (
             <div className="text-center py-8">
               <FiCpu className="mx-auto h-12 w-12 text-gray-400" />
-              <p className="mt-2 text-sm text-gray-500">No API keys found</p>
-              <p className="text-xs text-gray-400">Add a device to generate API keys for ESP32 configuration</p>
+              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No API keys found</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">Add a device to generate API keys for ESP32 configuration</p>
             </div>
           )}
         </div>

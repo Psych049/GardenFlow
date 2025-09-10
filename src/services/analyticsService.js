@@ -1,6 +1,6 @@
-import { supabase } from '../lib/supabase';
+import { supabase, handleSupabaseError } from '../lib/supabase';
 
-// Analytics Service for advanced data analysis and insights
+// Analytics Service for advanced data analysis and insights with real-time capabilities
 export class AnalyticsService {
   
   // Get analytics data for a specific time period
@@ -21,7 +21,11 @@ export class AnalyticsService {
         .lte('timestamp', endDate.toISOString())
         .order('timestamp', { ascending: true });
 
-      if (sensorError) throw sensorError;
+      if (sensorError) {
+        const handledError = handleSupabaseError(sensorError);
+        console.error('Error fetching sensor data:', handledError);
+        throw handledError;
+      }
 
       // Get zones data
       const { data: zones, error: zonesError } = await supabase
@@ -29,7 +33,11 @@ export class AnalyticsService {
         .select('*')
         .eq('user_id', user.id);
 
-      if (zonesError) throw zonesError;
+      if (zonesError) {
+        const handledError = handleSupabaseError(zonesError);
+        console.error('Error fetching zones:', handledError);
+        throw handledError;
+      }
 
       // Get watering controls data
       const { data: wateringControls, error: wateringError } = await supabase
@@ -37,7 +45,11 @@ export class AnalyticsService {
         .select('*')
         .eq('user_id', user.id);
 
-      if (wateringError) throw wateringError;
+      if (wateringError) {
+        const handledError = handleSupabaseError(wateringError);
+        console.error('Error fetching watering controls:', handledError);
+        throw handledError;
+      }
 
       // Get commands data for water usage analysis
       const { data: commands, error: commandsError } = await supabase
@@ -47,7 +59,11 @@ export class AnalyticsService {
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString());
 
-      if (commandsError) throw commandsError;
+      if (commandsError) {
+        const handledError = handleSupabaseError(commandsError);
+        console.error('Error fetching commands:', handledError);
+        throw handledError;
+      }
 
       return {
         sensorData: sensorData || [],
@@ -411,7 +427,11 @@ export class AnalyticsService {
         .lte('timestamp', endDate.toISOString())
         .order('timestamp', { ascending: true });
 
-      if (error) throw error;
+      if (error) {
+        const handledError = handleSupabaseError(error);
+        console.error('Error fetching trend data:', handledError);
+        throw handledError;
+      }
 
       // Group data by day/hour based on period
       const groupedData = this.groupDataByTime(sensorData, period);
@@ -443,22 +463,76 @@ export class AnalyticsService {
         grouped[key] = {
           temperature: [],
           humidity: [],
-          soil_moisture: []
+          soil_moisture: [],
+          count: 0
         };
       }
       
       grouped[key].temperature.push(data.temperature);
       grouped[key].humidity.push(data.humidity);
       grouped[key].soil_moisture.push(data.soil_moisture);
+      grouped[key].count++;
     });
-
+    
     // Calculate averages
-    return Object.entries(grouped).map(([key, values]) => ({
-      time: key,
-      temperature: Math.round(values.temperature.reduce((a, b) => a + b, 0) / values.temperature.length * 10) / 10,
-      humidity: Math.round(values.humidity.reduce((a, b) => a + b, 0) / values.humidity.length * 10) / 10,
-      soil_moisture: Math.round(values.soil_moisture.reduce((a, b) => a + b, 0) / values.soil_moisture.length * 10) / 10
-    }));
+    const result = [];
+    Object.keys(grouped).forEach(key => {
+      const item = grouped[key];
+      result.push({
+        date: key,
+        temperature: item.temperature.reduce((a, b) => a + b, 0) / item.temperature.length,
+        humidity: item.humidity.reduce((a, b) => a + b, 0) / item.humidity.length,
+        soil_moisture: item.soil_moisture.reduce((a, b) => a + b, 0) / item.soil_moisture.length,
+        count: item.count
+      });
+    });
+    
+    return result;
+  }
+
+  // Real-time subscription for analytics data
+  static subscribeToAnalyticsData(callback) {
+    if (!supabase) {
+      console.error('Cannot create subscription: Supabase client not initialized');
+      return null;
+    }
+
+    const subscription = supabase
+      .channel('analytics_data_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'sensor_data'
+        },
+        (payload) => {
+          console.log('Analytics data change:', payload);
+          callback(payload);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'commands'
+        },
+        (payload) => {
+          console.log('Command data change:', payload);
+          callback(payload);
+        }
+      )
+      .subscribe();
+
+    return subscription;
+  }
+
+  // Unsubscribe from real-time updates
+  static unsubscribe(subscription) {
+    if (subscription && supabase) {
+      supabase.removeChannel(subscription);
+    }
   }
 }
 

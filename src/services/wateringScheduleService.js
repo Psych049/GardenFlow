@@ -1,11 +1,14 @@
-import { supabase } from '../lib/supabase';
+import { supabase, queryWithAuth, handleSupabaseError } from '../lib/supabase';
 
-// Watering Schedule Service
+// Watering Schedule Service with real-time capabilities
 export class WateringScheduleService {
   
   // Fetch all watering schedules with zone details
   static async fetchWateringSchedules() {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
       const { data, error } = await supabase
         .from('watering_schedules')
         .select(`
@@ -15,6 +18,7 @@ export class WateringScheduleService {
           duration,
           is_active,
           created_at,
+          zone_id,
           zones (
             id,
             name, 
@@ -22,11 +26,13 @@ export class WateringScheduleService {
             description
           )
         `)
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Error fetching watering schedules:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error fetching watering schedules:', handledError);
+        throw handledError;
       }
       
       return data || [];
@@ -39,10 +45,8 @@ export class WateringScheduleService {
   // Create a new watering schedule
   static async createWateringSchedule(scheduleData) {
     try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) {
-        throw new Error('User not authenticated');
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
       const { data, error } = await supabase
         .from('watering_schedules')
@@ -51,7 +55,7 @@ export class WateringScheduleService {
           name: scheduleData.name,
           cron_expression: scheduleData.cron_expression,
           duration: scheduleData.duration,
-          is_active: scheduleData.is_active,
+          is_active: scheduleData.is_active !== undefined ? scheduleData.is_active : true,
           user_id: user.id
         }])
         .select(`
@@ -61,20 +65,23 @@ export class WateringScheduleService {
           duration,
           is_active,
           created_at,
+          zone_id,
           zones (
             id,
             name, 
             soil_type,
             description
           )
-        `);
+        `)
+        .single();
 
       if (error) {
-        console.error('Error creating watering schedule:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error creating watering schedule:', handledError);
+        throw handledError;
       }
       
-      return data?.[0] || null;
+      return data;
     } catch (error) {
       console.error('Error in createWateringSchedule:', error);
       throw error;
@@ -84,10 +91,14 @@ export class WateringScheduleService {
   // Update an existing watering schedule
   static async updateWateringSchedule(scheduleId, updates) {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
       const { data, error } = await supabase
         .from('watering_schedules')
         .update(updates)
         .eq('id', scheduleId)
+        .eq('user_id', user.id)
         .select(`
           id,
           name,
@@ -95,20 +106,23 @@ export class WateringScheduleService {
           duration,
           is_active,
           created_at,
+          zone_id,
           zones (
             id,
             name, 
             soil_type,
             description
           )
-        `);
+        `)
+        .single();
 
       if (error) {
-        console.error('Error updating watering schedule:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error updating watering schedule:', handledError);
+        throw handledError;
       }
       
-      return data?.[0] || null;
+      return data;
     } catch (error) {
       console.error('Error in updateWateringSchedule:', error);
       throw error;
@@ -118,14 +132,19 @@ export class WateringScheduleService {
   // Delete a watering schedule
   static async deleteWateringSchedule(scheduleId) {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
       const { error } = await supabase
         .from('watering_schedules')
         .delete()
-        .eq('id', scheduleId);
+        .eq('id', scheduleId)
+        .eq('user_id', user.id);
 
       if (error) {
-        console.error('Error deleting watering schedule:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error deleting watering schedule:', handledError);
+        throw handledError;
       }
       
       return true;
@@ -138,10 +157,14 @@ export class WateringScheduleService {
   // Toggle schedule active status
   static async toggleScheduleStatus(scheduleId, isActive) {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
       const { data, error } = await supabase
         .from('watering_schedules')
         .update({ is_active: isActive })
         .eq('id', scheduleId)
+        .eq('user_id', user.id)
         .select(`
           id,
           name,
@@ -149,20 +172,23 @@ export class WateringScheduleService {
           duration,
           is_active,
           created_at,
+          zone_id,
           zones (
             id,
             name, 
             soil_type,
             description
           )
-        `);
+        `)
+        .single();
 
       if (error) {
-        console.error('Error toggling schedule status:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error toggling schedule status:', handledError);
+        throw handledError;
       }
       
-      return data?.[0] || null;
+      return data;
     } catch (error) {
       console.error('Error in toggleScheduleStatus:', error);
       throw error;
@@ -172,20 +198,58 @@ export class WateringScheduleService {
   // Get zones for dropdown
   static async fetchZones() {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
       const { data, error } = await supabase
         .from('zones')
         .select('id, name, description, soil_type')
+        .eq('user_id', user.id)
         .order('name', { ascending: true });
 
       if (error) {
-        console.error('Error fetching zones:', error);
-        throw error;
+        const handledError = handleSupabaseError(error);
+        console.error('Error fetching zones:', handledError);
+        throw handledError;
       }
       
       return data || [];
     } catch (error) {
       console.error('Error in fetchZones:', error);
       return [];
+    }
+  }
+
+  // Real-time subscription for watering schedules
+  static subscribeToWateringSchedules(callback) {
+    if (!supabase) {
+      console.error('Cannot create subscription: Supabase client not initialized');
+      return null;
+    }
+
+    const subscription = supabase
+      .channel('watering_schedules_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'watering_schedules'
+        },
+        (payload) => {
+          console.log('Watering schedule change:', payload);
+          callback(payload);
+        }
+      )
+      .subscribe();
+
+    return subscription;
+  }
+
+  // Unsubscribe from watering schedules
+  static unsubscribe(subscription) {
+    if (subscription && supabase) {
+      supabase.removeChannel(subscription);
     }
   }
 

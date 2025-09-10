@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import DataService from '../../services/dataService';
+import { useTheme } from '../../contexts/ThemeContext';
 
 const MoistureHumidityChart = () => {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -18,16 +21,19 @@ const MoistureHumidityChart = () => {
       
       const sensorData = await DataService.getSensorDataForCharts(24);
       
-      // Transform data for chart
-      const chartData = sensorData.map(item => ({
-        time: new Date(item.timestamp).toLocaleTimeString('en-US', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: false 
-        }),
-        moisture: parseFloat(item.soil_moisture),
-        humidity: parseFloat(item.humidity)
-      }));
+      // Transform data for chart with validation
+      const chartData = sensorData
+        .filter(item => item && item.timestamp) // Filter out invalid data
+        .map(item => ({
+          time: new Date(item.timestamp).toLocaleTimeString('en-US', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: false 
+          }),
+          moisture: parseFloat(item.soil_moisture) || 0,
+          humidity: parseFloat(item.humidity) || 0
+        }))
+        .filter(item => item.moisture >= 0 && item.humidity >= 0); // Filter out negative values
       
       setData(chartData);
     } catch (err) {
@@ -38,10 +44,35 @@ const MoistureHumidityChart = () => {
     }
   };
 
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className={`p-3 rounded-lg shadow-soft border ${
+          isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+        }`}>
+          <p className={`font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>
+            Time: {label}
+          </p>
+          {payload.map((entry, index) => (
+            <p key={index} className={`font-semibold`} style={{ color: entry.color }}>
+              {entry.name}: {entry.value}%
+            </p>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
   if (loading) {
     return (
       <div className="h-72 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+            Loading moisture and humidity data...
+          </p>
+        </div>
       </div>
     );
   }
@@ -50,13 +81,18 @@ const MoistureHumidityChart = () => {
     return (
       <div className="h-72 flex items-center justify-center">
         <div className="text-center">
-          <svg className="h-12 w-12 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className={`h-12 w-12 mx-auto ${isDark ? 'text-gray-600' : 'text-gray-400'} mb-4`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <p className="text-gray-500 text-sm">{error}</p>
+          <p className={`${isDark ? 'text-gray-400' : 'text-gray-500'} text-sm mb-2`}>{error}</p>
           <button 
             onClick={loadMoistureHumidityData}
-            className="mt-2 text-green-600 hover:text-green-700 text-sm"
+            className={`px-3 py-1 rounded-lg text-xs transition-colors ${
+              isDark 
+                ? 'bg-gray-700 hover:bg-gray-600 text-white' 
+                : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
+            }`}
+            aria-label="Retry loading moisture and humidity data"
           >
             Retry
           </button>
@@ -69,18 +105,18 @@ const MoistureHumidityChart = () => {
     return (
       <div className="h-72 flex items-center justify-center">
         <div className="text-center">
-          <svg className="h-12 w-12 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className={`h-12 w-12 mx-auto ${isDark ? 'text-gray-600' : 'text-gray-400'} mb-4`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
-          <p className="text-gray-500 text-sm">No moisture/humidity data available</p>
-          <p className="text-gray-400 text-xs">Connect your sensors to see real-time data</p>
+          <p className={`${isDark ? 'text-gray-400' : 'text-gray-500'} text-sm mb-1`}>No moisture/humidity data available</p>
+          <p className={`${isDark ? 'text-gray-500' : 'text-gray-400'} text-xs`}>Connect your sensors to see real-time data</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-72">
+    <div className="h-72" role="region" aria-label="Moisture and humidity trends chart">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={data}
@@ -91,42 +127,79 @@ const MoistureHumidityChart = () => {
             bottom: 5,
           }}
         >
-          <CartesianGrid strokeDasharray="3 3" />
+          <CartesianGrid 
+            strokeDasharray="3 3" 
+            stroke={isDark ? '#374151' : '#e5e7eb'} 
+          />
           <XAxis 
             dataKey="time" 
-            tick={{ fontSize: 12 }}
+            tick={{ 
+              fontSize: 12,
+              fill: isDark ? '#9ca3af' : '#6b7280'
+            }}
             interval="preserveStartEnd"
+            stroke={isDark ? '#374151' : '#e5e7eb'}
           />
           <YAxis 
-            tick={{ fontSize: 12 }}
+            tick={{ 
+              fontSize: 12,
+              fill: isDark ? '#9ca3af' : '#6b7280'
+            }}
             domain={[0, 100]}
+            stroke={isDark ? '#374151' : '#e5e7eb'}
           />
           <Tooltip 
-            contentStyle={{
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              border: '1px solid #e5e7eb',
-              borderRadius: '8px',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+            content={<CustomTooltip />}
+            cursor={{
+              stroke: isDark ? '#6b7280' : '#d1d5db',
+              strokeWidth: 1,
+              strokeDasharray: '3 3'
             }}
           />
-          <Legend />
+          <Legend 
+            wrapperStyle={{
+              color: isDark ? '#e5e7eb' : '#374151'
+            }}
+          />
           <Line 
             type="monotone" 
             dataKey="moisture" 
             stroke="#3b82f6" 
-            strokeWidth={2}
-            activeDot={{ r: 8 }} 
+            strokeWidth={3}
+            activeDot={{ 
+              r: 8,
+              stroke: '#3b82f6',
+              strokeWidth: 2,
+              fill: isDark ? '#1f2937' : '#ffffff'
+            }} 
             name="Soil Moisture (%)"
-            dot={{ r: 3 }}
+            dot={{ 
+              r: 4,
+              fill: '#3b82f6',
+              stroke: isDark ? '#1f2937' : '#ffffff',
+              strokeWidth: 2
+            }}
+            connectNulls={true}
           />
           <Line 
             type="monotone" 
             dataKey="humidity" 
             stroke="#8b5cf6" 
-            strokeWidth={2}
-            activeDot={{ r: 8 }} 
+            strokeWidth={3}
+            activeDot={{ 
+              r: 8,
+              stroke: '#8b5cf6',
+              strokeWidth: 2,
+              fill: isDark ? '#1f2937' : '#ffffff'
+            }} 
             name="Humidity (%)"
-            dot={{ r: 3 }}
+            dot={{ 
+              r: 4,
+              fill: '#8b5cf6',
+              stroke: isDark ? '#1f2937' : '#ffffff',
+              strokeWidth: 2
+            }}
+            connectNulls={true}
           />
         </LineChart>
       </ResponsiveContainer>
