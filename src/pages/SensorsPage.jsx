@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTheme } from '../contexts/ThemeContext';
+import Button from '../components/ui/Button';
+import Card from '../components/ui/Card';
+import Select from '../components/ui/Select';
+import Badge from '../components/ui/Badge';
+import DataService from '../services/dataService';
 
 const SensorsPage = () => {
   const { theme } = useTheme();
@@ -14,101 +19,126 @@ const SensorsPage = () => {
   const [error, setError] = useState(null);
   const [timeframe, setTimeframe] = useState('day'); // day, week, month
 
-  // Sample data until we connect to real sensor data
-  const mockSensors = [
-    { id: 'sensor1', name: 'Garden Sensor 1', zone: 'Vegetable Garden', status: 'online', battery: 85 },
-    { id: 'sensor2', name: 'Garden Sensor 2', zone: 'Flower Bed', status: 'online', battery: 72 },
-    { id: 'sensor3', name: 'Garden Sensor 3', zone: 'Herb Garden', status: 'offline', battery: 15 },
-    { id: 'sensor4', name: 'Indoor Sensor 1', zone: 'Indoor Plants', status: 'online', battery: 90 }
-  ];
+  // Load sensors from Supabase
+  const loadSensors = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const devices = await DataService.getDevices();
+      
+      // Transform devices to sensor format
+      const transformedSensors = devices.map(device => ({
+        id: device.id,
+        name: device.name,
+        zone: device.zone_id || 'Unassigned',
+        status: device.status,
+        battery: device.battery_level || 100 // Default to 100% if not provided
+      }));
 
-  // Generate mock sensor data
-  const generateMockData = (sensorId, timeframe) => {
-    const data = [];
-    const now = new Date();
-    const points = timeframe === 'day' ? 24 : timeframe === 'week' ? 7 : 30;
-    const step = timeframe === 'day' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000; // hour or day in ms
-    
-    for (let i = points - 1; i >= 0; i--) {
-      const time = new Date(now.getTime() - (i * step));
-      data.push({
-        time: timeframe === 'day' 
-          ? time.getHours() + ':00' 
-          : `${time.getMonth() + 1}/${time.getDate()}`,
-        temperature: Math.round((15 + Math.random() * 15) * 10) / 10,
-        humidity: Math.round((40 + Math.random() * 40) * 10) / 10,
-        soil_moisture: Math.round((20 + Math.random() * 40) * 10) / 10
-      });
+      setSensors(transformedSensors);
+
+      // Set the first sensor as selected by default
+      if (transformedSensors.length > 0 && !selectedSensor) {
+        setSelectedSensor(transformedSensors[0].id);
+      }
+    } catch (err) {
+      console.error('Error loading sensors:', err);
+      setError('Failed to load sensors: ' + err.message);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  // Load sensor data from Supabase
+  const loadSensorData = async (sensorId, timeframe) => {
+    try {
+      // Calculate hours based on timeframe
+      let hours;
+      switch (timeframe) {
+        case 'day':
+          hours = 24;
+          break;
+        case 'week':
+          hours = 24 * 7;
+          break;
+        case 'month':
+          hours = 24 * 30;
+          break;
+        default:
+          hours = 24;
+      }
+
+      const data = await DataService.getSensorDataForCharts(hours);
+      
+      // Filter data for selected sensor
+      const filteredData = data.filter(item => {
+        // Find the device for this data point
+        const device = sensors.find(sensor => sensor.id === item.device_id);
+        return device && device.id === sensorId;
+      });
+
+      // Transform data for charts
+      const transformedData = filteredData.map(item => ({
+        time: formatTime(item.timestamp, timeframe),
+        temperature: item.temperature,
+        humidity: item.humidity,
+        soil_moisture: item.soil_moisture
+      }));
+
+      setSensorData(transformedData);
+    } catch (err) {
+      console.error('Error loading sensor data:', err);
+      setError('Failed to load sensor data: ' + err.message);
+    }
+  };
+
+  // Format time for display based on timeframe
+  const formatTime = (timestamp, timeframe) => {
+    const date = new Date(timestamp);
     
-    return data;
+    switch (timeframe) {
+      case 'day':
+        return `${date.getHours()}:00`;
+      case 'week':
+      case 'month':
+        return `${date.getMonth() + 1}/${date.getDate()}`;
+      default:
+        return `${date.getHours()}:00`;
+    }
   };
 
   useEffect(() => {
-    // Load sensors
-    const loadSensors = async () => {
-      setLoading(true);
-      try {
-        // In a real app, we would fetch from Supabase here
-        // const { data, error } = await supabase
-        //   .from('sensors')
-        //   .select('*');
-        
-        // if (error) throw error;
-        // setSensors(data || []);
-
-        // Using mock data for now
-        setSensors(mockSensors);
-        
-        // Set the first sensor as selected by default
-        if (mockSensors.length > 0 && !selectedSensor) {
-          setSelectedSensor(mockSensors[0].id);
-        }
-      } catch (err) {
-        console.error('Error loading sensors:', err);
-        setError('Failed to load sensors. Please try again.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadSensors();
   }, []);
 
   useEffect(() => {
     // Load sensor data when a sensor is selected
     if (selectedSensor) {
-      const data = generateMockData(selectedSensor, timeframe);
-      setSensorData(data);
+      loadSensorData(selectedSensor, timeframe);
     }
-  }, [selectedSensor, timeframe]);
+  }, [selectedSensor, timeframe, sensors]);
 
-  // Function to simulate generating real-time data
+  // Function to refresh data
+  const handleRefresh = () => {
+    loadSensors();
+    if (selectedSensor) {
+      loadSensorData(selectedSensor, timeframe);
+    }
+  };
+
   const simulateSensorData = async () => {
     try {
-      // Call the edge function to simulate sensor data
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/simulate-sensor-data`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabase.auth.session()?.access_token}`
-          }
-        }
-      );
+      await DataService.simulateSensorData();
       
-      const result = await response.json();
+      // Refresh data after simulation
+      handleRefresh();
       
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to generate sensor data');
-      }
-      
+      // Show success message
       alert('Sensor data generated successfully!');
       
     } catch (err) {
       console.error('Error generating sensor data:', err);
-      setError('Failed to generate sensor data. Please try again.');
+      setError('Failed to generate sensor data: ' + err.message);
     }
   };
 
@@ -133,188 +163,251 @@ const SensorsPage = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className={`text-2xl font-semibold ${isDark ? 'text-white' : 'text-gray-800'}`}>Sensors</h1>
-        <button 
-          onClick={simulateSensorData}
-          className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
-        >
-          Generate Sensor Data
-        </button>
+        <div className="flex items-center space-x-3">
+          <Button 
+            onClick={handleRefresh}
+            variant="secondary"
+            title="Refresh sensors"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </Button>
+        </div>
       </div>
 
       {error && (
-        <div className={`p-4 ${isDark ? 'bg-red-900 bg-opacity-20 border-red-500 text-red-400' : 'bg-red-50 border-red-500 text-red-700'} border-l-4 rounded`}>
-          <p>{error}</p>
+        <div className={`p-4 rounded-lg ${isDark ? 'bg-red-900 bg-opacity-20 border border-red-500 text-red-400' : 'bg-red-50 border border-red-500 text-red-700'}`}>
+          <div className="flex items-center">
+            <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{error}</span>
+          </div>
         </div>
       )}
 
       {loading ? (
-        <div className="flex justify-center p-12">
+        <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Sensor List */}
-          <div className="lg:col-span-1">
-            <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} rounded-lg shadow-sm p-4`}>
-              <h2 className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-800'} mb-4`}>Devices</h2>
-              
-              <div className="space-y-3">
+        <>
+          {/* Sensor Selection and Timeframe */}
+          <div className={`flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <Select
+                id="sensor-select"
+                value={selectedSensor || ''}
+                onChange={(e) => setSelectedSensor(e.target.value)}
+                label="Select Sensor"
+                className="w-full sm:w-64"
+              >
+                <option value="">Select a sensor</option>
                 {sensors.map((sensor) => (
-                  <button
-                    key={sensor.id}
-                    onClick={() => setSelectedSensor(sensor.id)}
-                    className={`w-full text-left p-3 rounded-lg border ${
-                      selectedSensor === sensor.id 
-                        ? isDark 
-                          ? 'border-green-500 bg-green-900 bg-opacity-20' 
-                          : 'border-green-500 bg-green-50'
-                        : isDark
-                          ? 'border-gray-700 hover:bg-gray-700'
-                          : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex justify-between items-center">
-                      <div className={`font-medium ${isDark ? 'text-white' : ''}`}>{sensor.name}</div>
-                      <span className={`text-xs px-2 py-1 rounded-full ${getSensorStatusClass(sensor.status)}`}>
-                        {sensor.status}
-                      </span>
-                    </div>
-                    <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'} mt-1`}>
-                      {sensor.zone}
-                    </div>
-                    <div className="flex items-center mt-2">
-                      <svg className={`h-4 w-4 ${getBatteryColor(sensor.battery)} mr-1`} viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm2-2h12v10H4V3z" />
-                        <path d="M17 5a1 1 0 00-1 1v8a1 1 0 001 1h1a1 1 0 001-1V6a1 1 0 00-1-1h-1z" />
-                      </svg>
-                      <span className={`text-xs ${getBatteryColor(sensor.battery)}`}>
-                        {sensor.battery}%
-                      </span>
-                    </div>
-                  </button>
+                  <option key={sensor.id} value={sensor.id}>
+                    {sensor.name}
+                  </option>
                 ))}
-              </div>
+              </Select>
+              
+              <Select
+                id="timeframe-select"
+                value={timeframe}
+                onChange={(e) => setTimeframe(e.target.value)}
+                label="Timeframe"
+                className="w-full sm:w-32"
+              >
+                <option value="day">Last 24 Hours</option>
+                <option value="week">Last 7 Days</option>
+                <option value="month">Last 30 Days</option>
+              </Select>
             </div>
+            
+            <Button onClick={simulateSensorData} variant="primary">
+              Simulate Data
+            </Button>
           </div>
 
-          {/* Sensor Data */}
-          <div className="lg:col-span-3">
-            <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} rounded-lg shadow-sm p-6`}>
-              <div className="flex justify-between items-center mb-6">
-                <h2 className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>
-                  {selectedSensor ? sensors.find(s => s.id === selectedSensor)?.name : 'Select a sensor'}
-                </h2>
-                
-                <div className="inline-flex rounded-md shadow-sm" role="group">
-                  <button
-                    type="button"
-                    onClick={() => setTimeframe('day')}
-                    className={`px-4 py-2 text-sm font-medium rounded-l-md ${
-                      timeframe === 'day' 
-                        ? 'bg-green-600 text-white' 
-                        : isDark 
-                          ? 'bg-gray-700 text-white border border-gray-600 hover:bg-gray-600'
-                          : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    Day
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTimeframe('week')}
-                    className={`px-4 py-2 text-sm font-medium ${
-                      timeframe === 'week' 
-                        ? 'bg-green-600 text-white' 
-                        : isDark 
-                          ? 'bg-gray-700 text-white border-t border-b border-gray-600 hover:bg-gray-600'
-                          : 'bg-white text-gray-700 border-t border-b border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    Week
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTimeframe('month')}
-                    className={`px-4 py-2 text-sm font-medium rounded-r-md ${
-                      timeframe === 'month' 
-                        ? 'bg-green-600 text-white' 
-                        : isDark 
-                          ? 'bg-gray-700 text-white border border-gray-600 hover:bg-gray-600'
-                          : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    Month
-                  </button>
+          {selectedSensor ? (
+            <>
+              {/* Sensor Details */}
+              <Card>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  {sensors
+                    .filter(sensor => sensor.id === selectedSensor)
+                    .map(sensor => (
+                      <div key={sensor.id} className="md:col-span-1">
+                        <h3 className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Sensor</h3>
+                        <p className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{sensor.name}</p>
+                      </div>
+                    ))}
+                  
+                  <div className="md:col-span-1">
+                    <h3 className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Status</h3>
+                    {sensors
+                      .filter(sensor => sensor.id === selectedSensor)
+                      .map(sensor => (
+                        <Badge key={sensor.id} variant={sensor.status === 'online' ? 'success' : 'error'}>
+                          {sensor.status}
+                        </Badge>
+                      ))}
+                  </div>
+                  
+                  <div className="md:col-span-1">
+                    <h3 className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Battery</h3>
+                    {sensors
+                      .filter(sensor => sensor.id === selectedSensor)
+                      .map(sensor => (
+                        <p key={sensor.id} className={`text-lg font-semibold ${getBatteryColor(sensor.battery)}`}>
+                          {sensor.battery}%
+                        </p>
+                      ))}
+                  </div>
+                  
+                  <div className="md:col-span-1">
+                    <h3 className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Zone</h3>
+                    {sensors
+                      .filter(sensor => sensor.id === selectedSensor)
+                      .map(sensor => (
+                        <p key={sensor.id} className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                          {sensor.zone}
+                        </p>
+                      ))}
+                  </div>
                 </div>
+              </Card>
+
+              {/* Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <h3 className={`text-lg font-medium mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>Temperature</h3>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={sensorData}
+                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+                        <XAxis 
+                          dataKey="time" 
+                          tick={{ 
+                            fontSize: 12,
+                            fill: isDark ? '#9ca3af' : '#6b7280'
+                          }}
+                          interval="preserveStartEnd"
+                          stroke={isDark ? '#374151' : '#e5e7eb'}
+                        />
+                        <YAxis 
+                          tick={{ 
+                            fontSize: 12,
+                            fill: isDark ? '#9ca3af' : '#6b7280'
+                          }}
+                          domain={['dataMin - 2', 'dataMax + 2']}
+                          stroke={isDark ? '#374151' : '#e5e7eb'}
+                        />
+                        <Tooltip 
+                          contentStyle={isDark ? { 
+                            backgroundColor: '#1f2937', 
+                            borderColor: '#374151',
+                            color: 'white'
+                          } : {}}
+                          cursor={{
+                            stroke: isDark ? '#6b7280' : '#d1d5db',
+                            strokeWidth: 1,
+                            strokeDasharray: '3 3'
+                          }}
+                        />
+                        <Legend />
+                        <Line 
+                          type="monotone" 
+                          dataKey="temperature" 
+                          stroke="#f97316" 
+                          strokeWidth={2}
+                          activeDot={{ r: 8 }} 
+                          name="Temperature (°C)"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </Card>
+
+                <Card>
+                  <h3 className={`text-lg font-medium mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>Humidity & Soil Moisture</h3>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={sensorData}
+                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+                        <XAxis 
+                          dataKey="time" 
+                          tick={{ 
+                            fontSize: 12,
+                            fill: isDark ? '#9ca3af' : '#6b7280'
+                          }}
+                          interval="preserveStartEnd"
+                          stroke={isDark ? '#374151' : '#e5e7eb'}
+                        />
+                        <YAxis 
+                          tick={{ 
+                            fontSize: 12,
+                            fill: isDark ? '#9ca3af' : '#6b7280'
+                          }}
+                          domain={[0, 100]}
+                          stroke={isDark ? '#374151' : '#e5e7eb'}
+                        />
+                        <Tooltip 
+                          contentStyle={isDark ? { 
+                            backgroundColor: '#1f2937', 
+                            borderColor: '#374151',
+                            color: 'white'
+                          } : {}}
+                          cursor={{
+                            stroke: isDark ? '#6b7280' : '#d1d5db',
+                            strokeWidth: 1,
+                            strokeDasharray: '3 3'
+                          }}
+                        />
+                        <Legend />
+                        <Line 
+                          type="monotone" 
+                          dataKey="humidity" 
+                          stroke="#3b82f6" 
+                          strokeWidth={2}
+                          activeDot={{ r: 8 }} 
+                          name="Humidity (%)"
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="soil_moisture" 
+                          stroke="#22c55e" 
+                          strokeWidth={2}
+                          activeDot={{ r: 8 }} 
+                          name="Soil Moisture (%)"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </Card>
               </div>
-
-              {selectedSensor && sensorData.length > 0 ? (
-                <>
-                  {/* Temperature Chart */}
-                  <div className="mb-8">
-                    <h3 className={`text-md font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'} mb-3`}>Temperature (°C)</h3>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={sensorData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#555' : '#ccc'} />
-                          <XAxis dataKey="time" stroke={isDark ? '#aaa' : '#666'} />
-                          <YAxis stroke={isDark ? '#aaa' : '#666'} />
-                          <Tooltip contentStyle={isDark ? { backgroundColor: '#333', borderColor: '#555', color: '#fff' } : {}} />
-                          <Line
-                            type="monotone"
-                            dataKey="temperature"
-                            stroke="#f97316"
-                            strokeWidth={2}
-                            dot={false}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  {/* Humidity & Soil Moisture Chart */}
-                  <div>
-                    <h3 className={`text-md font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'} mb-3`}>Humidity & Soil Moisture (%)</h3>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={sensorData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#555' : '#ccc'} />
-                          <XAxis dataKey="time" stroke={isDark ? '#aaa' : '#666'} />
-                          <YAxis stroke={isDark ? '#aaa' : '#666'} />
-                          <Tooltip contentStyle={isDark ? { backgroundColor: '#333', borderColor: '#555', color: '#fff' } : {}} />
-                          <Legend />
-                          <Line
-                            type="monotone"
-                            dataKey="humidity"
-                            stroke="#a855f7"
-                            strokeWidth={2}
-                            dot={false}
-                            name="Humidity"
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="soil_moisture"
-                            stroke="#3b82f6"
-                            strokeWidth={2}
-                            dot={false}
-                            name="Soil Moisture"
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className={`flex flex-col items-center justify-center h-64 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                  <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-                  </svg>
-                  <p>Select a sensor to view data</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+            </>
+          ) : (
+            <Card>
+              <div className="text-center py-12">
+                <svg className={`h-16 w-16 mx-auto ${isDark ? 'text-gray-600' : 'text-gray-400'} mb-4`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <h3 className={`text-lg font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>No sensor selected</h3>
+                <p className={`${isDark ? 'text-gray-400' : 'text-gray-500'} mb-4`}>Select a sensor from the dropdown to view its data</p>
+                <Button onClick={handleRefresh} variant="primary">
+                  Refresh Sensors
+                </Button>
+              </div>
+            </Card>
+          )}
+        </>
       )}
     </div>
   );

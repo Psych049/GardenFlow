@@ -1,220 +1,149 @@
-# 🌱 Smart Garden Dashboard
+# 🌿 FarmFlow Dashboard
 
-A modern, responsive web application for monitoring and managing your smart garden ecosystem. Built with React, Supabase, and Tailwind CSS, this dashboard provides real-time sensor data visualization, plant management, automated watering schedules, and intelligent recommendations.
+A modern IoT garden monitoring dashboard for real-time plant monitoring and smart watering system control.
 
-## ✨ Features
+## Project Overview
 
-### 📊 **Real-time Monitoring**
-- Live sensor data from temperature, humidity, and soil moisture sensors
-- Interactive charts and graphs using Recharts
-- Weather integration for local conditions
-- Real-time alerts and notifications
+FarmFlow Dashboard is a comprehensive solution for gardeners to monitor environmental conditions, automate watering, and analyze plant health data. The dashboard provides real-time visibility into garden conditions through ESP32 IoT devices and offers automated watering system management.
 
-### 🌿 **Plant Management**
-- Zone-based plant organization
-- Soil type analysis and recommendations
-- Plant health monitoring
-- Customizable plant zones with sensor mapping
+## Features
 
-### 💧 **Smart Watering System**
-- Automated watering schedules
-- Zone-specific watering plans
-- Moisture-based trigger systems
-- Manual override capabilities
+- **Real-time Sensor Monitoring**: Temperature, humidity, and soil moisture tracking
+- **Plant Zone Management**: Customizable zones with different soil types
+- **Automated Watering Scheduling**: Configurable schedules with manual override
+- **Advanced Analytics**: Interactive charts and historical data analysis
+- **ESP32 Device Integration**: Direct communication with IoT sensors
+- **Responsive Design**: Works on desktop, tablet, and mobile devices
+- **Dark/Light Theme**: User preference support with system detection
 
-### 📈 **Analytics & Insights**
-- Historical data analysis
-- Performance trends
-- Predictive maintenance alerts
-- Garden health scoring
+## Technology Stack
 
-### 🔐 **User Management**
-- Secure authentication with Supabase Auth
-- User-specific data isolation
-- API key management for sensor integration
-- Role-based access control
+### Frontend
+- React 18.2.0
+- Vite 7.1.4
+- Tailwind CSS 3.4.0
+- Recharts 3.1.0
+- React Router DOM 7.7.0
+- React Icons 5.5.0
 
-### 🎨 **Modern UI/UX**
-- Dark/Light theme toggle
-- Responsive design for all devices
-- Intuitive navigation
-- Beautiful data visualizations
+### Backend/Services
+- Supabase 2.52.0 (Database, Authentication, Edge Functions)
+- WeatherAPI for weather data
 
-## 🛠️ Tech Stack
+## Project Structure
 
-- **Frontend**: React 18, Vite, React Router DOM
-- **Styling**: Tailwind CSS, PostCSS
-- **Charts**: Recharts
-- **Backend**: Supabase (PostgreSQL, Auth, Real-time)
-- **Icons**: React Icons
-- **Date Handling**: date-fns
-- **HTTP Client**: Axios
+```
+src/
+├── components/          # Reusable UI components
+│   ├── charts/          # Data visualization components
+│   ├── layout/          # Layout components (AuthenticatedLayout, etc.)
+│   └── ui/              # Standardized UI components (Button, Card, etc.)
+├── contexts/            # React context providers (Auth, Theme)
+├── lib/                 # Supabase client configuration
+├── pages/               # Feature-specific page components
+├── services/            # Business logic and API services
+└── index.css            # Global styles and Tailwind configuration
 
-## 🚀 Getting Started
+supabase/
+├── functions/           # Edge functions for ESP32 communication
+├── migrations/          # Database schema and RLS policies
+└── README.md            # Supabase configuration documentation
+```
+
+## Setup Instructions
 
 ### Prerequisites
-
-- Node.js (v16 or higher)
-- pnpm (recommended) or npm
-- Supabase account and project
+- Node.js 18+
+- pnpm package manager
+- Supabase account
 
 ### Installation
 
-1. **Clone the repository**
+1. Clone the repository:
    ```bash
-   git clone <your-repo-url>
-   cd M_49
+   git clone <repository-url>
+   cd Project_Dashboard
    ```
 
-2. **Install dependencies**
+2. Install dependencies:
    ```bash
    pnpm install
    ```
 
-3. **Set up Supabase**
-   - Create a new Supabase project
-   - Run the schema from `supabase/schema.sql` in your Supabase SQL editor
-   - Copy your Supabase URL and anon key
-
-4. **Configure environment variables**
-   Create a `.env` file in the root directory:
-   ```env
+3. Set up environment variables:
+   Create a `.env` file in the root directory with the following variables:
+   ```
    VITE_SUPABASE_URL=your_supabase_url
    VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+   VITE_WEATHER_API_KEY=your_weatherapi_key
    ```
 
-5. **Start the development server**
-   ```bash
-   pnpm run dev
-   ```
+4. Set up Supabase:
+   - Create a new Supabase project
+   - Run the SQL schema from `supabase/schema.sql`
+   - Apply RLS policies from `supabase/migrations/001-rls-policies.sql`
+   - Deploy the Edge Functions from `supabase/functions/`
 
-6. **Open your browser**
-   Navigate to `http://localhost:5173`
+### Development
 
-## 📁 Project Structure
-
-```
-M_49/
-├── src/
-│   ├── components/          # Reusable UI components
-│   │   ├── charts/         # Data visualization components
-│   │   ├── layout/         # Layout components
-│   │   └── ...
-│   ├── contexts/           # React contexts (Auth, Theme)
-│   ├── data/              # Mock data and utilities
-│   ├── lib/               # External library configurations
-│   ├── pages/             # Page components
-│   └── ...
-├── supabase/
-│   ├── functions/         # Edge functions
-│   └── schema.sql         # Database schema
-└── ...
+```bash
+pnpm run dev
 ```
 
-## 🔧 Available Scripts
+### Production Build
 
-- `pnpm run dev` - Start development server
-- `pnpm run build` - Build for production
-- `pnpm run preview` - Preview production build
-
-## 🌐 Pages & Features
-
-### Dashboard (`/dashboard`)
-- Overview of garden health
-- Real-time sensor data
-- Weather information
-- Quick alerts and notifications
-
-### Plants (`/plants`)
-- Plant zone management
-- Soil type analysis
-- Plant recommendations
-- Health monitoring
-
-### Watering Schedule (`/schedule`)
-- Automated watering plans
-- Zone-specific schedules
-- Manual override controls
-- Schedule history
-
-### Sensors (`/sensors`)
-- Sensor configuration
-- Data visualization
-- Calibration tools
-- Sensor health status
-
-### Analytics (`/analytics`)
-- Historical data analysis
-- Performance metrics
-- Trend analysis
-- Export capabilities
-
-### System (`/system`)
-- System status
-- Configuration settings
-- Maintenance tools
-- System logs
-
-### Settings (`/settings`)
-- User preferences
-- Theme customization
-- API key management
-- Account settings
-
-## 🔌 API Integration
-
-The dashboard integrates with ESP32 sensors through Supabase Edge Functions:
-
-- **ESP32 Data Function**: Receives sensor data from ESP32 devices
-- **Simulate Sensor Data**: Generates mock data for testing
-
-### Sensor Data Format
-```json
-{
-  "zone_id": "uuid",
-  "temperature": 25.5,
-  "humidity": 65.2,
-  "soil_moisture": 45.8,
-  "timestamp": "2024-01-01T12:00:00Z"
-}
+```bash
+pnpm run build
 ```
 
-## 🎨 Customization
+### Preview Build
 
-### Themes
-The application supports both light and dark themes. Users can toggle between themes using the theme toggle button in the header.
+```bash
+pnpm run preview
+```
 
-### Styling
-The project uses Tailwind CSS for styling. Custom styles can be added in `src/index.css` or by extending the Tailwind configuration in `tailwind.config.js`.
+## ESP32 Integration
 
-## 🔒 Security
+The dashboard integrates with ESP32 devices through Supabase Edge Functions:
 
-- Row Level Security (RLS) enabled on all tables
-- User-specific data isolation
-- Secure API key management
-- Authentication required for all protected routes
+1. **Device Registration**: Devices are registered in the dashboard and assigned API keys
+2. **Data Transmission**: ESP32 devices send sensor data to Supabase using HTTP requests
+3. **Command Handling**: The dashboard sends watering commands that ESP32 devices fetch periodically
+4. **Real-time Updates**: Changes are reflected immediately in the dashboard through Supabase real-time subscriptions
 
-## 📊 Database Schema
+### Security
 
-The application uses the following main tables:
-- `sensor_data` - Stores sensor readings
-- `zones` - Garden zones configuration
-- `alerts` - System alerts and notifications
-- `soil_types` - Soil type information
-- `api_keys` - API key management
+- Row Level Security (RLS) policies ensure users can only access their own data
+- API keys authenticate ESP32 devices
+- All communication happens over HTTPS
+- Database functions validate data ownership
 
-## 🤝 Contributing
+## Database Schema
+
+The project uses a comprehensive database schema with tables for:
+- Users and profiles
+- Plant zones
+- ESP32 devices
+- Sensor data
+- Watering schedules and controls
+- System alerts
+- API keys
+
+## Row Level Security (RLS)
+
+All tables have RLS enabled with policies that ensure users can only access data they own. See `supabase/migrations/001-rls-policies.sql` for detailed policies.
+
+## Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
 
-## 📝 License
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
----
+## Support
 
-**Built with ❤️ for smart gardening enthusiasts** 
+For support, please open an issue on the GitHub repository or contact the maintainers.

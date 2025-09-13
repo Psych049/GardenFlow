@@ -1,6 +1,5 @@
-// Follow this setup guide to integrate the Deno language server with your editor:
-// https://deno.land/manual/getting_started/setup_your_environment
-// This enables autocomplete, go to definition, etc.
+// Simulate Sensor Data Edge Function
+// Generates realistic sensor data for testing and demonstration purposes
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -11,26 +10,38 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // This is needed if you're planning to invoke your function from a browser.
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
+    // Create Supabase client with service role key for full access
     const supabaseClient = createClient(
-      // Supabase API URL - env var exported by default.
       Deno.env.get('SUPABASE_URL') ?? '',
-      // Supabase API ANON KEY - env var exported by default.
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      // Create client with Auth context of the user that called the function.
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      { 
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
     )
 
     // Get the user from the auth header
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Missing or invalid authorization header' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401,
+      })
+    }
+
+    const token = authHeader.substring(7)
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token)
     
-    if (userError) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: 'Invalid authentication token' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 401,
       })
@@ -39,30 +50,50 @@ serve(async (req) => {
     // Get zones for the authenticated user
     const { data: zones, error: zonesError } = await supabaseClient
       .from('zones')
-      .select('id, name, sensor_id')
+      .select('id, name')
       .eq('user_id', user.id)
 
     if (zonesError) {
-      return new Response(JSON.stringify({ error: zonesError.message }), {
+      return new Response(JSON.stringify({ error: `Database error: ${zonesError.message}` }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400,
+        status: 500,
       })
     }
 
     if (!zones || zones.length === 0) {
-      return new Response(JSON.stringify({ error: 'No zones found' }), {
+      return new Response(JSON.stringify({ error: 'No zones found. Create zones first.' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 404,
       })
     }
 
-    // Generate random sensor data for each zone
+    // Get devices for the authenticated user
+    const { data: devices, error: devicesError } = await supabaseClient
+      .from('devices')
+      .select('id, name')
+      .eq('user_id', user.id)
+      .limit(1)
+
+    if (devicesError) {
+      return new Response(JSON.stringify({ error: `Database error: ${devicesError.message}` }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500,
+      })
+    }
+
+    const deviceId = devices && devices.length > 0 ? devices[0].id : null;
+
+    // Generate realistic sensor data for each zone
     const sensorData = zones.map(zone => ({
+      device_id: deviceId,
       zone_id: zone.id,
-      temperature: parseFloat((15 + Math.random() * 15).toFixed(1)), // 15-30°C
-      humidity: parseFloat((40 + Math.random() * 40).toFixed(1)),    // 40-80%
-      soil_moisture: parseFloat((20 + Math.random() * 40).toFixed(1)), // 20-60%
-      user_id: user.id
+      temperature: parseFloat((18 + Math.random() * 12).toFixed(1)), // 18-30°C
+      humidity: parseFloat((45 + Math.random() * 30).toFixed(1)),    // 45-75%
+      soil_moisture: parseFloat((30 + Math.random() * 40).toFixed(1)), // 30-70%
+      light_level: parseFloat((100 + Math.random() * 900).toFixed(0)), // 100-1000 lux
+      ph_level: parseFloat((6.0 + Math.random() * 1.5).toFixed(1)),    // 6.0-7.5 pH
+      user_id: user.id,
+      timestamp: new Date().toISOString()
     }))
 
     // Insert the data into the sensor_data table
@@ -72,13 +103,14 @@ serve(async (req) => {
       .select()
 
     if (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
+      return new Response(JSON.stringify({ error: `Database error: ${error.message}` }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400,
+        status: 500,
       })
     }
 
     return new Response(JSON.stringify({ 
+      success: true,
       message: 'Sensor data simulated successfully',
       data 
     }), {
@@ -86,7 +118,8 @@ serve(async (req) => {
       status: 200,
     })
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    console.error('Simulate sensor data error:', error)
+    return new Response(JSON.stringify({ error: `Server error: ${error.message}` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,
     })

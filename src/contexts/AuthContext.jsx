@@ -17,6 +17,11 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     async function loadUser() {
       try {
+        // Check if supabase client is initialized
+        if (!supabase) {
+          throw new Error('Supabase client not initialized. Check your environment variables.');
+        }
+        
         const { user: currentUser, error } = await getCurrentUser();
         if (error) throw error;
         setUser(currentUser);
@@ -31,29 +36,39 @@ export function AuthProvider({ children }) {
     // Initial user load
     loadUser();
 
-    // Subscribe to auth changes
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session?.user) {
-          setUser(session.user);
-        } else {
-          setUser(null);
+    // Only subscribe to auth changes if supabase is initialized
+    if (supabase) {
+      // Subscribe to auth changes
+      const { data: authListener } = supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          if (session?.user) {
+            setUser(session.user);
+          } else {
+            setUser(null);
+          }
+          setLoading(false);
         }
-        setLoading(false);
-      }
-    );
+      );
 
-    // Cleanup subscription
-    return () => {
-      if (authListener?.subscription?.unsubscribe) {
-        authListener.subscription.unsubscribe();
-      }
-    };
+      // Cleanup subscription
+      return () => {
+        if (authListener?.subscription?.unsubscribe) {
+          authListener.subscription.unsubscribe();
+        }
+      };
+    } else {
+      setLoading(false);
+    }
   }, []);
 
   // Auth functions
   const login = async (email, password) => {
     try {
+      // Check if supabase client is initialized
+      if (!supabase) {
+        throw new Error('Supabase client not initialized. Check your environment variables.');
+      }
+      
       setLoading(true);
       setError(null);
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -72,6 +87,11 @@ export function AuthProvider({ children }) {
 
   const signup = async (email, password) => {
     try {
+      // Check if supabase client is initialized
+      if (!supabase) {
+        throw new Error('Supabase client not initialized. Check your environment variables.');
+      }
+      
       setLoading(true);
       setError(null);
       const { data, error } = await supabase.auth.signUp({
@@ -90,6 +110,11 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
+      // Check if supabase client is initialized
+      if (!supabase) {
+        throw new Error('Supabase client not initialized. Check your environment variables.');
+      }
+      
       setLoading(true);
       setError(null);
       const { error } = await supabase.auth.signOut();
