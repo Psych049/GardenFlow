@@ -1,7 +1,9 @@
 // ESP32 Commands Edge Function
 // Handles sending commands to ESP32 devices for pump control and watering operations
 
+// @ts-ignore: Deno is available in the Edge Functions runtime
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+// @ts-ignore: Supabase client is imported via CDN
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
@@ -17,8 +19,11 @@ serve(async (req) => {
 
   try {
     // Create Supabase client with service role key for full access
+    // @ts-ignore: Deno environment variables are available in Edge Functions
     const supabaseClient = createClient(
+      // @ts-ignore: Deno environment variables are available in Edge Functions
       Deno.env.get('SUPABASE_URL') ?? '',
+      // @ts-ignore: Deno environment variables are available in Edge Functions
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
       { 
         auth: {
@@ -144,7 +149,7 @@ serve(async (req) => {
         .single()
 
       if (deviceError || !device) {
-        return new Response(JSON.stringify({ error: 'Device not registered or access denied' }), {
+        return new Response(JSON.stringify({ error: 'Device registered or access denied' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           status: 404,
         })
@@ -203,7 +208,7 @@ serve(async (req) => {
       }
 
       // Update command status
-      const updateData = { 
+      const updateData: any = { 
         status,
         executed_at: status === 'executed' || status === 'failed' ? new Date().toISOString() : null
       }
@@ -258,4 +263,4 @@ serve(async (req) => {
       status: 500,
     })
   }
-}) 
+})

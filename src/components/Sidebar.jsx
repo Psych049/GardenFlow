@@ -10,7 +10,7 @@ const links = [
   { to: '/dashboard', label: 'Dashboard', icon: <FiHome />, description: 'Overview of your garden' },
   { to: '/plants', label: 'Plants', icon: <FaLeaf />, description: 'Manage plant zones' },
   { to: '/schedule', label: 'Watering', icon: <FiDroplet />, description: 'Schedule and controls' },
-  { to: '/sensors', label: 'Sensors', icon: <FiDatabase />, description: 'Sensor data and status' },
+  { to: '/sensors', label: 'Sensors Data', icon: <FiDatabase />, description: 'Sensor data and status' },
   { to: '/analytics', label: 'Analytics', icon: <FiActivity />, description: 'Data analysis and trends' },
   { to: '/system', label: 'System', icon: <FiCpu />, description: 'System status and logs' },
   { to: '/settings', label: 'Settings', icon: <FiSettings />, description: 'Preferences and configuration' },

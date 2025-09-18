@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
+import { ProfileService } from '../services/profileService';
+import { DeviceService } from '../services/deviceService';
 import { FiUser, FiBell, FiSettings, FiLogOut, FiX, FiCheck, FiAlertCircle, FiWifi, FiSun, FiMoon, FiDroplet, FiRefreshCw, FiKey, FiSave } from 'react-icons/fi';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
@@ -19,6 +21,7 @@ const SettingsPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
+  const [devices, setDevices] = useState([]);
   
   const [notificationSettings, setNotificationSettings] = useState({
     emailAlerts: true,
@@ -43,11 +46,23 @@ const SettingsPage = () => {
     }
   }, [message]);
 
+  // Fetch devices
+  const fetchDevices = async () => {
+    try {
+      const deviceData = await DeviceService.fetchDevices();
+      setDevices(deviceData);
+    } catch (err) {
+      console.error('Error fetching devices:', err);
+    }
+  };
+
   useEffect(() => {
     if (user) {
       setEmail(user.email || '');
       // Fetch user profile data from Supabase
       fetchUserProfile();
+      // Fetch devices
+      fetchDevices();
     }
   }, [user]);
 
@@ -64,19 +79,15 @@ const SettingsPage = () => {
       if (error) throw error;
       
       if (user) {
-        // Fetch additional profile data if stored in a separate table
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-        
-        if (profileError && profileError.code !== 'PGRST116') {
-          // PGRST116 means no rows returned, which is fine
-          throw profileError;
+        // Use the ProfileService to fetch or create profile
+        try {
+          const profile = await ProfileService.fetchProfile();
+          setName(profile?.name || user.email?.split('@')[0] || 'Garden Enthusiast');
+        } catch (profileError) {
+          console.error('Error with ProfileService:', profileError);
+          // Fallback to default name
+          setName(user.email?.split('@')[0] || 'Garden Enthusiast');
         }
-        
-        setName(profile?.name || user.email.split('@')[0] || 'Garden Enthusiast');
         
         // Load settings from localStorage or use defaults
         const savedNotificationSettings = localStorage.getItem('notificationSettings');
@@ -108,41 +119,18 @@ const SettingsPage = () => {
     setMessage(null);
     
     try {
-      // Update user profile in Supabase
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      
-      if (user) {
-        // Check if profile exists
-        const { data: existingProfile, error: selectError } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('id', user.id)
-          .single();
-        
-        let updateError;
-        if (existingProfile) {
-          // Update existing profile
-          const { error } = await supabase
-            .from('profiles')
-            .update({ name })
-            .eq('id', user.id);
-          updateError = error;
-        } else {
-          // Create new profile
-          const { error } = await supabase
-            .from('profiles')
-            .insert({ id: user.id, name, updated_at: new Date() });
-          updateError = error;
-        }
-        
-        if (updateError) throw updateError;
-        
-        setMessage('Profile updated successfully');
-      }
+      const result = await ProfileService.updateProfile(name);
+      setMessage('Profile updated successfully');
     } catch (err) {
       console.error('Error updating profile:', err);
-      setError('Failed to update profile: ' + err.message);
+      // Provide more specific error messages
+      if (err.code === '23505') {
+        setError('Profile already exists. Please try updating instead.');
+      } else if (err.message.includes('406')) {
+        setError('Access denied. Please check your permissions.');
+      } else {
+        setError('Failed to update profile: ' + err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -535,56 +523,78 @@ const SettingsPage = () => {
             </div>
             
             <div>
-              <h3 className={`text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'} mb-3`}>
-                Connected Devices
-              </h3>
-              <div className="overflow-hidden border rounded-lg">
-                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                  <thead className={isDark ? 'bg-gray-700' : 'bg-gray-50'}>
-                    <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                        Device Name
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                        Status
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                        Last Seen
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody className={`divide-y ${isDark ? 'divide-gray-700 bg-gray-800' : 'divide-gray-200 bg-white'}`}>
-                    <tr>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        Garden Sensor #1
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${isDark ? 'bg-green-900 text-green-400' : 'bg-green-100 text-green-800'}`}>
-                          Online
-                        </span>
-                      </td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                        2 minutes ago
-                      </td>
-                    </tr>
-
-                    <tr>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        Greenhouse Monitor
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${isDark ? 'bg-red-900 text-red-400' : 'bg-red-100 text-red-800'}`}>
-                          Offline
-                        </span>
-                      </td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                        15 minutes ago
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className={`text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Connected Devices
+                </h3>
+                <button
+                  onClick={fetchDevices}
+                  disabled={loading}
+                  className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  <FiRefreshCw className={`inline mr-1 ${loading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
               </div>
+              
+              {devices.length > 0 ? (
+                <div className="overflow-hidden border rounded-lg">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className={isDark ? 'bg-gray-700' : 'bg-gray-50'}>
+                      <tr>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                          Device Name
+                        </th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                          Status
+                        </th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                          Last Seen
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody className={`divide-y ${isDark ? 'divide-gray-700 bg-gray-800' : 'divide-gray-200 bg-white'}`}>
+                      {devices.map((device) => (
+                        <tr key={device.id}>
+                          <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                            {device.name}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                              device.status === 'online' 
+                                ? (isDark ? 'bg-green-900 text-green-400' : 'bg-green-100 text-green-800') 
+                                : (isDark ? 'bg-red-900 text-red-400' : 'bg-red-100 text-red-800')
+                            }`}>
+                              {device.status}
+                            </span>
+                          </td>
+                          <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            {new Date(device.last_seen).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <FiWifi className={`mx-auto h-12 w-12 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                  <h3 className={`mt-2 text-sm font-medium ${isDark ? 'text-gray-200' : 'text-gray-900'}`}>No devices connected</h3>
+                  <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Your ESP32 devices will appear here once connected. Visit the System page to register devices.
+                  </p>
+                  <div className="mt-4">
+                    <a 
+                      href="/system" 
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      <FiSettings className="mr-2 -ml-1 h-4 w-4" />
+                      Go to System Page
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </Card>
