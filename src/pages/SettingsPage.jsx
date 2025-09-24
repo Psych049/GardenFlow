@@ -486,7 +486,7 @@ const SettingsPage = () => {
                 </button>
               </div>
               <p className={`text-sm mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                Use this key to authenticate your ESP32 devices with the FarmFlow API
+                Use this key to authenticate your ESP32 devices with the GardenCare API
               </p>
             </div>
             

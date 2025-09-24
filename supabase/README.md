@@ -1,10 +1,10 @@
-# FarmFlow Dashboard - Supabase Configuration
+# GardenCare Dashboard - Supabase Configuration
 
-This directory contains the Supabase configuration and migration files for the FarmFlow Dashboard project.
+This directory contains the Supabase configuration and migration files for the GardenCare Dashboard project.
 
 ## Database Schema Overview
 
-The FarmFlow Dashboard uses the following tables:
+The GardenCare Dashboard uses the following tables:
 
 1. **users** - Supabase Auth users table
 2. **profiles** - User profile information

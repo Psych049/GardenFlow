@@ -72,7 +72,7 @@ const Signup = () => {
             Create Account
           </h1>
           <h2 className={`mt-2 text-lg ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-            Sign up for your FarmFlow account
+            Sign up for your GardenCare account
           </h2>
         </div>
         

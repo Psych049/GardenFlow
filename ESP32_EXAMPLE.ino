@@ -1,7 +1,7 @@
 /*
- * ESP32 Example for FarmFlow Dashboard
+ * ESP32 Example for GardenCare Dashboard
  * 
- * This example demonstrates how to connect an ESP32 to the FarmFlow dashboard
+ * This example demonstrates how to connect an ESP32 to the GardenCare dashboard
  * using Supabase as the backend.
  * 
  * Required libraries:

@@ -62,7 +62,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
         <div className="lg:hidden sticky top-0 z-50 flex items-center justify-between p-3.5 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           {/* Project Name / Logo */}
           <h1 className="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-            <FaLeaf className="text-green-500" /> FarmFlow
+            <FaLeaf className="text-green-500" /> GardenCare
           </h1>
 
           {/* Mobile Close Button */}

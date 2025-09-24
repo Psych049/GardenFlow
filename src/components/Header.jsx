@@ -181,8 +181,8 @@ const Header = ({ toggleSidebar }) => {
           </button>
           <h1 className={`text-lg sm:text-xl font-bold ${theme === 'dark' ? 'text-green-400' : 'text-green-600'} flex items-center`}>
             <span className="mr-2" aria-hidden="true">🌿</span>
-            <span className="hidden xs:inline">FarmFlow</span>
-            <span className="xs:hidden">FarmFlow</span>
+            <span className="hidden xs:inline">GardenCare</span>
+            <span className="xs:hidden">GardenCare</span>
           </h1>
         </div>
 

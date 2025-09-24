@@ -1,4 +1,4 @@
--- Row Level Security (RLS) Policies for FarmFlow Dashboard
+-- Row Level Security (RLS) Policies for GardenCare Dashboard
 -- These policies ensure users can only access their own data
 
 -- Enable RLS on all tables

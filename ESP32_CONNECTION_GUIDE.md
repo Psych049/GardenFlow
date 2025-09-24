@@ -1,18 +1,18 @@
-# ESP32 Connection Guide for FarmFlow Dashboard
+# ESP32 Connection Guide for GardenCare Dashboard
 
-This guide explains how to connect your ESP32 device to the FarmFlow dashboard using Supabase as the backend.
+This guide explains how to connect your ESP32 device to the GardenCare dashboard using Supabase as the backend.
 
 ## Prerequisites
 
 1. An ESP32 development board
 2. Sensors (DHT22 for temperature/humidity, soil moisture sensor)
 3. Arduino IDE or PlatformIO for development
-4. A FarmFlow dashboard account
+4. A GardenCare dashboard account
 5. WiFi network credentials
 
 ## Step 1: Register Your Device in the Dashboard
 
-1. Navigate to the System page in your FarmFlow dashboard
+1. Navigate to the System page in your GardenCare dashboard
 2. Click "Add Device" and fill in the required information:
    - Device Name: A descriptive name for your device
    - Device ID: A unique identifier for your device (e.g., ESP32_GARDEN_001)
@@ -36,7 +36,7 @@ This guide explains how to connect your ESP32 device to the FarmFlow dashboard u
    const char* apiKey = "YOUR_DEVICE_API_KEY"; // The key generated in Step 2
    ```
 
-2. Use these credentials to authenticate with the FarmFlow API endpoints
+2. Use these credentials to authenticate with the GardenCare API endpoints
 
 ## Step 4: Sending Sensor Data
 

@@ -60,7 +60,7 @@ const Login = () => {
             Welcome Back
           </h1>
           <h2 className={`mt-2 text-lg ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-            Sign in to your FarmFlow account
+            Sign in to your GardenCare account
           </h2>
         </div>
         
