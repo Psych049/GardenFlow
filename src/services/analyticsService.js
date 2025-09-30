@@ -84,8 +84,8 @@ export class AnalyticsService {
   static calculateWaterUsageByZone(commands, zones, period) {
     const waterUsage = {};
     
-    // Initialize zones
-    zones.forEach(zone => {
+    // Initialize zones with safe defaults
+    (zones || []).forEach(zone => {
       waterUsage[zone.name] = {
         name: zone.name,
         usage: 0,
@@ -94,8 +94,13 @@ export class AnalyticsService {
       };
     });
 
+    // If no zones exist, return empty array
+    if (!zones || zones.length === 0) {
+      return [];
+    }
+
     // Calculate from pump commands
-    const pumpCommands = commands.filter(cmd => cmd.command_type === 'pump_on');
+    const pumpCommands = (commands || []).filter(cmd => cmd.command_type === 'pump_on');
     
     pumpCommands.forEach(cmd => {
       const duration = cmd.parameters?.duration || 30; // seconds
@@ -104,11 +109,13 @@ export class AnalyticsService {
       
       // Find zone by device (simplified - you might need to enhance this mapping)
       const zone = zones.find(z => z.id === cmd.device_id);
-      if (zone) {
+      if (zone && waterUsage[zone.name]) {
         waterUsage[zone.name].usage += waterUsed;
         waterUsage[zone.name].sessions += 1;
+        const currentSessions = waterUsage[zone.name].sessions;
+        const currentAvg = waterUsage[zone.name].avgDuration;
         waterUsage[zone.name].avgDuration = 
-          (waterUsage[zone.name].avgDuration + duration) / 2;
+          ((currentAvg * (currentSessions - 1)) + duration) / currentSessions;
       }
     });
 
@@ -154,7 +161,12 @@ export class AnalyticsService {
 
   // Calculate moisture level distribution
   static calculateMoistureDistribution(sensorData) {
-    const moistureLevels = sensorData.map(data => data.soil_moisture);
+    // Handle empty sensor data
+    if (!sensorData || sensorData.length === 0) {
+      return [];
+    }
+    
+    const moistureLevels = sensorData.map(data => data.soil_moisture || 0);
     
     let optimal = 0;
     let slightlyDry = 0;
@@ -182,8 +194,13 @@ export class AnalyticsService {
   static calculatePlantHealthScores(sensorData, zones) {
     const healthScores = [];
     
+    // Handle empty zones
+    if (!zones || zones.length === 0) {
+      return [];
+    }
+    
     zones.forEach(zone => {
-      const zoneData = sensorData.filter(data => data.zone_id === zone.id);
+      const zoneData = (sensorData || []).filter(data => data.zone_id === zone.id);
       
       if (zoneData.length === 0) {
         healthScores.push({
@@ -195,9 +212,9 @@ export class AnalyticsService {
       }
 
       // Calculate health score based on multiple factors
-      const avgMoisture = zoneData.reduce((sum, data) => sum + data.soil_moisture, 0) / zoneData.length;
-      const avgTemperature = zoneData.reduce((sum, data) => sum + data.temperature, 0) / zoneData.length;
-      const avgHumidity = zoneData.reduce((sum, data) => sum + data.humidity, 0) / zoneData.length;
+      const avgMoisture = zoneData.reduce((sum, data) => sum + (data.soil_moisture || 0), 0) / zoneData.length;
+      const avgTemperature = zoneData.reduce((sum, data) => sum + (data.temperature || 0), 0) / zoneData.length;
+      const avgHumidity = zoneData.reduce((sum, data) => sum + (data.humidity || 0), 0) / zoneData.length;
       
       // Moisture score (0-40 points)
       let moistureScore = 0;
@@ -239,9 +256,32 @@ export class AnalyticsService {
   // Generate ML insights
   static generateInsights(sensorData, zones, commands) {
     const insights = [];
+    
+    // Handle empty data gracefully
+    if (!sensorData || sensorData.length === 0) {
+      insights.push({
+        id: 1,
+        title: 'Start Monitoring Your Garden',
+        description: 'Connect your ESP32 sensors to begin receiving real-time data and smart insights about your garden.',
+        icon: '🌱',
+        type: 'recommendation'
+      });
+      
+      if (!zones || zones.length === 0) {
+        insights.push({
+          id: 2,
+          title: 'Create Your First Zone',
+          description: 'Set up garden zones to organize your plants and optimize watering schedules.',
+          icon: '🏡',
+          type: 'recommendation'
+        });
+      }
+      
+      return insights;
+    }
 
     // Analyze watering patterns
-    const pumpCommands = commands.filter(cmd => cmd.command_type === 'pump_on');
+    const pumpCommands = (commands || []).filter(cmd => cmd.command_type === 'pump_on');
     if (pumpCommands.length > 0) {
       const wateringTimes = pumpCommands.map(cmd => new Date(cmd.created_at).getHours());
       const morningWatering = wateringTimes.filter(hour => hour >= 5 && hour <= 9).length;
@@ -265,10 +305,18 @@ export class AnalyticsService {
           type: 'recommendation'
         });
       }
+    } else {
+      insights.push({
+        id: 1,
+        title: 'Set Up Automatic Watering',
+        description: 'Configure automatic watering schedules to ensure your plants get optimal care.',
+        icon: '💧',
+        type: 'recommendation'
+      });
     }
 
     // Analyze moisture patterns
-    const avgMoisture = sensorData.reduce((sum, data) => sum + data.soil_moisture, 0) / sensorData.length;
+    const avgMoisture = sensorData.reduce((sum, data) => sum + (data.soil_moisture || 0), 0) / sensorData.length;
     if (avgMoisture < 30) {
       insights.push({
         id: 2,
@@ -285,10 +333,18 @@ export class AnalyticsService {
         icon: '💧',
         type: 'warning'
       });
+    } else {
+      insights.push({
+        id: 2,
+        title: 'Moisture Levels Good',
+        description: 'Your soil moisture levels are within the optimal range for healthy plant growth',
+        icon: '💧',
+        type: 'positive'
+      });
     }
 
     // Analyze temperature patterns
-    const avgTemperature = sensorData.reduce((sum, data) => sum + data.temperature, 0) / sensorData.length;
+    const avgTemperature = sensorData.reduce((sum, data) => sum + (data.temperature || 0), 0) / sensorData.length;
     if (avgTemperature > 30) {
       insights.push({
         id: 3,
@@ -297,13 +353,21 @@ export class AnalyticsService {
         icon: '🌡️',
         type: 'warning'
       });
+    } else if (avgTemperature < 15) {
+      insights.push({
+        id: 3,
+        title: 'Low Temperature Alert',
+        description: 'Temperature is below optimal range. Consider protection from cold or moving plants indoors',
+        icon: '🌡️',
+        type: 'warning'
+      });
     }
 
     // Zone-specific insights
-    zones.forEach(zone => {
+    (zones || []).forEach(zone => {
       const zoneData = sensorData.filter(data => data.zone_id === zone.id);
       if (zoneData.length > 0) {
-        const zoneAvgMoisture = zoneData.reduce((sum, data) => sum + data.soil_moisture, 0) / zoneData.length;
+        const zoneAvgMoisture = zoneData.reduce((sum, data) => sum + (data.soil_moisture || 0), 0) / zoneData.length;
         
         if (zoneAvgMoisture < 25) {
           insights.push({
@@ -353,32 +417,40 @@ export class AnalyticsService {
   // Get performance metrics
   static async getPerformanceMetrics(period = 'month') {
     try {
+      console.log('Getting performance metrics for period:', period);
       const data = await this.getAnalyticsData(period);
       
-      const waterUsageByZone = this.calculateWaterUsageByZone(data.commands, data.zones, period);
-      const waterSavings = this.calculateWaterSavings(data.commands, period);
-      const moistureDistribution = this.calculateMoistureDistribution(data.sensorData);
-      const healthScores = this.calculatePlantHealthScores(data.sensorData, data.zones);
-      const insights = this.generateInsights(data.sensorData, data.zones, data.commands);
+      console.log('Raw analytics data:', {
+        sensorDataCount: data.sensorData?.length || 0,
+        zonesCount: data.zones?.length || 0,
+        commandsCount: data.commands?.length || 0,
+        wateringControlsCount: data.wateringControls?.length || 0
+      });
+      
+      const waterUsageByZone = this.calculateWaterUsageByZone(data.commands || [], data.zones || [], period);
+      const waterSavings = this.calculateWaterSavings(data.commands || [], period);
+      const moistureDistribution = this.calculateMoistureDistribution(data.sensorData || []);
+      const healthScores = this.calculatePlantHealthScores(data.sensorData || [], data.zones || []);
+      const insights = this.generateInsights(data.sensorData || [], data.zones || [], data.commands || []);
 
-      // Calculate summary metrics
-      const totalWaterUsage = waterUsageByZone.reduce((sum, zone) => sum + zone.usage, 0);
-      const totalWaterSaved = waterSavings.reduce((sum, month) => sum + month.saved, 0);
-      const avgMoisture = data.sensorData.length > 0 
-        ? data.sensorData.reduce((sum, data) => sum + data.soil_moisture, 0) / data.sensorData.length 
+      // Calculate summary metrics with proper null checks
+      const totalWaterUsage = waterUsageByZone.reduce((sum, zone) => sum + (zone.usage || 0), 0);
+      const totalWaterSaved = waterSavings.reduce((sum, month) => sum + (month.saved || 0), 0);
+      const avgMoisture = data.sensorData && data.sensorData.length > 0 
+        ? data.sensorData.reduce((sum, reading) => sum + (reading.soil_moisture || 0), 0) / data.sensorData.length 
         : 0;
       const avgHealthScore = healthScores.length > 0 
-        ? healthScores.reduce((sum, zone) => sum + zone.score, 0) / healthScores.length 
+        ? healthScores.reduce((sum, zone) => sum + (zone.score || 0), 0) / healthScores.length 
         : 0;
 
-      return {
+      const result = {
         summary: {
           totalWaterUsage: Math.round(totalWaterUsage * 10) / 10,
           totalWaterSaved: Math.round(totalWaterSaved * 10) / 10,
           avgMoisture: Math.round(avgMoisture * 10) / 10,
           avgHealthScore: Math.round(avgHealthScore),
-          dataPoints: data.sensorData.length,
-          zones: data.zones.length
+          dataPoints: data.sensorData?.length || 0,
+          zones: data.zones?.length || 0
         },
         waterUsageByZone,
         waterSavings,
@@ -387,9 +459,42 @@ export class AnalyticsService {
         insights,
         period
       };
+      
+      console.log('Performance metrics result:', {
+        summary: result.summary,
+        waterUsageByZoneCount: result.waterUsageByZone.length,
+        waterSavingsCount: result.waterSavings.length,
+        moistureDistributionCount: result.moistureDistribution.length,
+        healthScoresCount: result.healthScores.length,
+        insightsCount: result.insights.length
+      });
+      
+      return result;
     } catch (error) {
       console.error('Error calculating performance metrics:', error);
-      throw error;
+      // Return empty data structure instead of throwing
+      return {
+        summary: {
+          totalWaterUsage: 0,
+          totalWaterSaved: 0,
+          avgMoisture: 0,
+          avgHealthScore: 0,
+          dataPoints: 0,
+          zones: 0
+        },
+        waterUsageByZone: [],
+        waterSavings: [],
+        moistureDistribution: [],
+        healthScores: [],
+        insights: [{
+          id: 1,
+          title: 'No Data Available',
+          description: 'Connect your sensors and add some devices to start seeing analytics data.',
+          icon: '📊',
+          type: 'recommendation'
+        }],
+        period
+      };
     }
   }
 

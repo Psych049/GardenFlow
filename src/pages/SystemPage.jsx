@@ -1,9 +1,12 @@
+
 import { useState, useEffect } from "react";
 import { Helmet } from "react-helmet";
 import { FiCpu, FiWifi, FiAlertCircle, FiRefreshCw, FiActivity, FiPower, FiPlus, FiTrash2, FiCheck, FiInfo, FiEye, FiEyeOff } from "react-icons/fi";
 import { DeviceService } from '../services/deviceService';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase, forceSchemaRefresh } from '../lib/supabase';
+
+import StickyAlert from '../components/StickyAlert';
 
 // Get Supabase config values
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -37,6 +40,16 @@ export default function SystemPage() {
   // Load data when component mounts
   useEffect(() => {
     loadAllData();
+    
+    // Set up automatic device status checking every 2 minutes (more reasonable)
+    const statusCheckInterval = setInterval(() => {
+      console.log('Auto-refreshing device status...');
+      loadDevices();
+    }, 120000); // 2 minutes instead of 30 seconds
+    
+    return () => {
+      clearInterval(statusCheckInterval);
+    };
   }, []);
 
   // Function to show success messages
@@ -69,8 +82,15 @@ export default function SystemPage() {
   const loadDevices = async () => {
     try {
       console.log('Loading devices...');
+      
+      // First update offline devices in the database
+      const offlineDevices = await DeviceService.updateOfflineDevices();
+      console.log('Updated offline devices:', offlineDevices?.length || 0);
+      
+      // Then fetch all devices with real-time status
       const devices = await DeviceService.fetchDevices();
-      console.log('Devices loaded:', devices);
+      console.log('Devices loaded:', devices?.length || 0);
+      console.log('Device statuses:', devices?.map(d => ({ name: d.name, status: d.status, last_seen: d.last_seen })));
       setDevices(devices);
     } catch (err) {
       console.error('Error loading devices:', err);
@@ -134,6 +154,86 @@ export default function SystemPage() {
     } catch (err) {
       console.error('Error adding device:', err);
       setError('Failed to add device: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerateTestSensorData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setError('Please log in first');
+        return;
+      }
+
+      // Ensure we have devices and zones
+      if (devices.length === 0) {
+        setError('Please create a device first');
+        return;
+      }
+
+      if (zones.length === 0) {
+        setError('Please create a zone first');
+        return;
+      }
+
+      // Generate realistic sensor data for the last 7 days
+      const sensorDataToInsert = [];
+      const now = new Date();
+      
+      for (let day = 0; day < 7; day++) {
+        for (let hour = 0; hour < 24; hour += 2) { // Every 2 hours
+          const timestamp = new Date(now.getTime() - (day * 24 * 60 * 60 * 1000) - (hour * 60 * 60 * 1000));
+          
+          devices.forEach(device => {
+            zones.forEach(zone => {
+              // Generate realistic sensor readings
+              const temperature = 18 + Math.random() * 12; // 18-30°C
+              const humidity = 45 + Math.random() * 30;    // 45-75%
+              const soilMoisture = 30 + Math.random() * 40; // 30-70%
+              const lightLevel = 100 + Math.random() * 900; // 100-1000 lux
+              const phLevel = 6.0 + Math.random() * 1.5;    // 6.0-7.5 pH
+              
+              sensorDataToInsert.push({
+                device_id: device.id,
+                zone_id: zone.id,
+                temperature: Math.round(temperature * 10) / 10,
+                humidity: Math.round(humidity * 10) / 10,
+                soil_moisture: Math.round(soilMoisture * 10) / 10,
+                light_level: Math.round(lightLevel),
+                ph_level: Math.round(phLevel * 10) / 10,
+                user_id: user.id,
+                timestamp: timestamp.toISOString()
+              });
+            });
+          });
+        }
+      }
+
+      console.log('Inserting sensor data:', sensorDataToInsert.length, 'records');
+
+      // Insert sensor data in batches to avoid hitting limits
+      const batchSize = 50;
+      for (let i = 0; i < sensorDataToInsert.length; i += batchSize) {
+        const batch = sensorDataToInsert.slice(i, i + batchSize);
+        const { error } = await supabase
+          .from('sensor_data')
+          .insert(batch);
+
+        if (error) {
+          console.error('Error inserting batch:', error);
+          throw error;
+        }
+      }
+      
+      showSuccessMessage(`Generated ${sensorDataToInsert.length} sensor readings for analytics testing!`);
+    } catch (err) {
+      console.error('Error generating test sensor data:', err);
+      setError('Failed to generate test sensor data: ' + (err.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
@@ -224,13 +324,96 @@ export default function SystemPage() {
         // Generate API key for the test device
         const apiKeyName = `${testDevice.name} API Key`;
         await DeviceService.generateApiKey(createdDevice.id, apiKeyName);
+        
+        // IMPORTANT: Set the device's last_seen to 10 minutes ago to test offline detection
+        const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        await supabase
+          .from('devices')
+          .update({ 
+            last_seen: tenMinutesAgo,
+            status: 'online' // Set as online initially to test our offline detection
+          })
+          .eq('id', createdDevice.id);
+        
+        console.log('Test device created with old timestamp:', tenMinutesAgo);
       }
       
       await loadAllData();
-      showSuccessMessage('Test device created successfully! Check the API Keys section below.');
+      showSuccessMessage('Test device created with old timestamp (10 minutes ago) - should show as offline!');
     } catch (err) {
       console.error('Error creating test device:', err);
       setError('Failed to create test device: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSimulateSensorData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setError('Please log in first');
+        return;
+      }
+
+      // Call the Supabase Edge Function
+      const { data, error } = await supabase.functions.invoke('simulate-sensor-data', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (error) {
+        console.error('Error calling simulate-sensor-data function:', error);
+        setError('Failed to simulate sensor data: ' + error.message);
+        return;
+      }
+
+      console.log('Simulation result:', data);
+      showSuccessMessage(`Simulated sensor data for ${data.data?.length || 0} zones!`);
+    } catch (err) {
+      console.error('Error simulating sensor data:', err);
+      setError('Failed to simulate sensor data: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMakeDevicesOnline = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setError('Please log in first');
+        return;
+      }
+
+      // Update all devices to be online with current timestamp
+      const { data, error } = await supabase
+        .from('devices')
+        .update({ 
+          status: 'online',
+          last_seen: new Date().toISOString()
+        })
+        .eq('user_id', user.id)
+        .select();
+
+      if (error) {
+        console.error('Error updating devices:', error);
+        setError('Failed to update devices: ' + error.message);
+        return;
+      }
+
+      await loadDevices();
+      showSuccessMessage(`Updated ${data?.length || 0} devices to online status!`);
+    } catch (err) {
+      console.error('Error making devices online:', err);
+      setError('Failed to make devices online: ' + (err.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
@@ -311,6 +494,16 @@ export default function SystemPage() {
     });
   };
 
+  // Calculate device connectivity stats
+  const getDeviceStats = () => {
+    const total = devices.length;
+    const online = devices.filter(d => d.status === 'online').length;
+    const offline = total - online;
+    return { online, offline, total };
+  };
+
+  const deviceStats = getDeviceStats();
+
   const hasApiKeyForDevice = (deviceName) => {
     return apiKeys.some(apiKey => apiKey.name.includes(deviceName));
   };
@@ -360,10 +553,10 @@ export default function SystemPage() {
         return;
       }
       
-      // Update device status to trigger a refresh
-      await DeviceService.updateDeviceStatus(deviceId, device.status === 'online' ? 'offline' : 'online');
+      // Force refresh device status by checking offline devices first
+      await DeviceService.updateOfflineDevices();
       
-      // Reload devices
+      // Reload devices to get updated status
       await loadDevices();
       
       showSuccessMessage(`Device "${device.name}" status refreshed!`);
@@ -405,6 +598,28 @@ export default function SystemPage() {
       
       <div className="space-y-6">
         <h1 className="text-3xl font-bold">System</h1>
+        
+        {/* Device Connectivity Alert */}
+        {devices.length > 0 && deviceStats.offline > 0 && (
+          <StickyAlert
+            type="warning"
+            dismissible={true}
+            showConnectivityStatus={true}
+            deviceStatus={deviceStats}
+            message={`${deviceStats.offline} of ${deviceStats.total} device${deviceStats.total > 1 ? 's' : ''} offline`}
+          />
+        )}
+        
+        {devices.length > 0 && deviceStats.offline === 0 && deviceStats.online > 0 && (
+          <StickyAlert
+            type="info"
+            dismissible={true}
+            autoHide={true}
+            duration={3000}
+            deviceStatus={deviceStats}
+            message={`All ${deviceStats.total} device${deviceStats.total > 1 ? 's' : ''} connected and online`}
+          />
+        )}
         
         {/* Error Display */}
         {error && (
@@ -472,6 +687,14 @@ export default function SystemPage() {
               <p>Modal open: {showAddDevice ? 'Yes' : 'No'}</p>
               <p>Zone names: {zones.map(z => z.name).join(', ') || 'None'}</p>
               <p>API Key names: {apiKeys.map(k => k.name).join(', ') || 'None'}</p>
+              <p><strong>Device Status Check:</strong></p>
+              {devices.map(device => (
+                <p key={device.id} className="ml-2">
+                  {device.name}: {device.status} (original: {device.original_status})
+                  <br />
+                  <span className="text-xs">Last seen: {device.last_seen ? new Date(device.last_seen).toLocaleString() : 'Never'}</span>
+                </p>
+              ))}
             </div>
             <div className="mt-2 space-x-2">
               <button 
@@ -508,7 +731,44 @@ export default function SystemPage() {
                 onClick={handleCreateTestDevice} 
                 className="px-2 py-1 bg-red-500 text-white rounded text-xs"
               >
-                Create Test Device
+                Create Test Device (Old Timestamp)
+              </button>
+              <button 
+                onClick={handleGenerateTestSensorData} 
+                className="px-2 py-1 bg-green-500 text-white rounded text-xs"
+              >
+                Generate Test Sensor Data
+              </button>
+              <button 
+                onClick={handleSimulateSensorData} 
+                className="px-2 py-1 bg-blue-500 text-white rounded text-xs"
+              >
+                Simulate Live Data (Supabase Fn)
+              </button>
+              <button 
+                onClick={async () => {
+                  // Force all existing devices to have old timestamps
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (user) {
+                    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+                    await supabase
+                      .from('devices')
+                      .update({ last_seen: tenMinutesAgo })
+                      .eq('user_id', user.id);
+                    
+                    await loadDevices();
+                    showSuccessMessage('All devices set to 10 minutes ago - they should now show as offline!');
+                  }
+                }} 
+                className="px-2 py-1 bg-red-500 text-white rounded text-xs"
+              >
+                Force Devices Offline (10m ago)
+              </button>
+              <button 
+                onClick={handleMakeDevicesOnline} 
+                className="px-2 py-1 bg-green-500 text-white rounded text-xs"
+              >
+                Make All Devices Online
               </button>
             </div>
           </div>
@@ -783,17 +1043,44 @@ export default function SystemPage() {
                 <div key={device.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-medium text-gray-900 dark:text-white">{device.name}</h3>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      device.status === 'online' 
-                        ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                        : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                    }`}>
-                      {device.status}
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <span className={`px-2 py-1 rounded text-xs font-medium flex items-center space-x-1 ${
+                        device.status === 'online' 
+                          ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                      }`}>
+                        <div className={`w-2 h-2 rounded-full ${
+                          device.status === 'online' ? 'bg-green-500' : 'bg-red-500'
+                        }`}></div>
+                        <span>{device.status}</span>
+                      </span>
+                    </div>
                   </div>
                   <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-                    <p>ID: {device.device_id}</p>
-                    <p>Last seen: {new Date(device.last_seen).toLocaleString()}</p>
+                    <p>ID: <span className="font-mono text-xs">{device.device_id}</span></p>
+                    <p>Last seen: {device.last_seen ? new Date(device.last_seen).toLocaleString() : 'Never'}</p>
+                    {device.status === 'offline' && device.last_seen && (() => {
+                      const now = new Date();
+                      const lastSeen = new Date(device.last_seen);
+                      const diffMinutes = Math.floor((now - lastSeen) / (1000 * 60));
+                      const diffHours = Math.floor(diffMinutes / 60);
+                      const diffDays = Math.floor(diffHours / 24);
+                      
+                      let timeAgo;
+                      if (diffDays > 0) {
+                        timeAgo = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+                      } else if (diffHours > 0) {
+                        timeAgo = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+                      } else {
+                        timeAgo = `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+                      }
+                      
+                      return (
+                        <p className="text-red-600 dark:text-red-400 text-xs">
+                          Offline for: {timeAgo}
+                        </p>
+                      );
+                    })()}
                     {device.firmware_version && (
                       <p>Firmware: {device.firmware_version}</p>
                     )}
