@@ -8,9 +8,21 @@ const AlertsPanel = () => {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [realtimeSubscription, setRealtimeSubscription] = useState(null);
 
   useEffect(() => {
     loadAlerts();
+    
+    // Set up real-time subscription for alerts
+    const subscription = DataService.subscribeToAlerts(handleRealtimeAlertUpdate);
+    setRealtimeSubscription(subscription);
+    
+    // Cleanup subscription on unmount
+    return () => {
+      if (subscription) {
+        DataService.unsubscribe(subscription);
+      }
+    };
   }, []);
 
   const loadAlerts = async () => {
@@ -22,9 +34,63 @@ const AlertsPanel = () => {
       setAlerts(alertsData);
     } catch (err) {
       console.error('Error loading alerts:', err);
-      setError('Failed to load alerts');
+      setError('Failed to load alerts: ' + (err.message || 'Please try again.'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle real-time alert updates
+  const handleRealtimeAlertUpdate = (payload) => {
+    console.log('Real-time alert update:', payload);
+    
+    const { eventType, new: newAlert, old: oldAlert } = payload;
+    
+    switch (eventType) {
+      case 'INSERT':
+        // Add new alert to the list if it's unread
+        if (newAlert && !newAlert.read) {
+          setAlerts(prevAlerts => {
+            // Check if alert already exists to avoid duplicates
+            const exists = prevAlerts.some(alert => alert.id === newAlert.id);
+            if (!exists) {
+              return [newAlert, ...prevAlerts].slice(0, 10); // Keep only latest 10
+            }
+            return prevAlerts;
+          });
+        }
+        break;
+        
+      case 'UPDATE':
+        // Handle alert updates (like marking as read)
+        if (newAlert) {
+          setAlerts(prevAlerts => {
+            if (newAlert.read) {
+              // Remove from list if marked as read
+              return prevAlerts.filter(alert => alert.id !== newAlert.id);
+            } else {
+              // Update existing alert
+              return prevAlerts.map(alert => 
+                alert.id === newAlert.id ? newAlert : alert
+              );
+            }
+          });
+        }
+        break;
+        
+      case 'DELETE':
+        // Remove deleted alert
+        if (oldAlert) {
+          setAlerts(prevAlerts => 
+            prevAlerts.filter(alert => alert.id !== oldAlert.id)
+          );
+        }
+        break;
+        
+      default:
+        // For any other changes, refresh the entire list
+        loadAlerts();
+        break;
     }
   };
 
@@ -142,7 +208,13 @@ const AlertsPanel = () => {
   return (
     <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-xl shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
       <div className="flex justify-between items-center mb-4">
-        <h2 className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>System Alerts</h2>
+        <div>
+          <h2 className={`text-lg font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>System Alerts</h2>
+          <div className={`flex items-center text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'} mt-1`}>
+            <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+            Real-time monitoring
+          </div>
+        </div>
         {alerts.length > 0 && (
           <button 
             className={`text-sm hover:text-gray-700 transition-colors ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
@@ -155,15 +227,18 @@ const AlertsPanel = () => {
       
       {alerts.length === 0 ? (
         <div className="text-center py-6">
-          <svg className={`h-12 w-12 mx-auto ${isDark ? 'text-gray-600' : 'text-gray-300'}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className={`h-12 w-12 mx-auto ${isDark ? 'text-gray-600' : 'text-gray-300'} mb-4`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>No active alerts</p>
+          <p className={`mt-2 font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>All Clear!</p>
+          <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+            No active alerts. Your garden system is running smoothly.
+          </p>
         </div>
       ) : (
         <ul className="space-y-3">
           {alerts.map((alert) => (
-            <li key={alert.id} className={`${getBadgeColor(alert.type)} rounded-xl p-4 flex items-start`}>
+            <li key={alert.id} className={`${getBadgeColor(alert.type)} rounded-xl p-4 flex items-start transition-all duration-300 hover:shadow-md ${alert.id.includes('new') ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}>
               <div className="flex-shrink-0 mr-3">
                 {getIcon(alert.type)}
               </div>

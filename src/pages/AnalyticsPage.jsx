@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import { useTheme } from '../contexts/ThemeContext';
 import AnalyticsService from '../services/analyticsService';
+import DataService from '../services/dataService';
 
 const AnalyticsPage = () => {
   const { theme } = useTheme();
@@ -10,9 +11,26 @@ const AnalyticsPage = () => {
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [realtimeSubscription, setRealtimeSubscription] = useState(null);
 
   useEffect(() => {
     loadAnalyticsData();
+    
+    // Set up real-time subscription for analytics data updates
+    const subscription = AnalyticsService.subscribeToAnalyticsData((payload) => {
+      console.log('Real-time analytics data update:', payload);
+      // Refresh analytics when new data arrives
+      loadAnalyticsData();
+    });
+    
+    setRealtimeSubscription(subscription);
+    
+    // Cleanup subscription on unmount
+    return () => {
+      if (subscription) {
+        AnalyticsService.unsubscribe(subscription);
+      }
+    };
   }, [period]);
 
   const loadAnalyticsData = async () => {
@@ -20,11 +38,24 @@ const AnalyticsPage = () => {
       setLoading(true);
       setError(null);
       
+      console.log('Loading analytics data for period:', period);
+      
+      // Get comprehensive performance metrics from real data
       const data = await AnalyticsService.getPerformanceMetrics(period);
+      
+      console.log('Loaded analytics data:', {
+        summary: data.summary,
+        waterUsageByZoneCount: data.waterUsageByZone?.length || 0,
+        waterSavingsCount: data.waterSavings?.length || 0,
+        moistureDistributionCount: data.moistureDistribution?.length || 0,
+        healthScoresCount: data.healthScores?.length || 0,
+        insightsCount: data.insights?.length || 0
+      });
+      
       setAnalyticsData(data);
     } catch (err) {
       console.error('Error loading analytics data:', err);
-      setError('Failed to load analytics data. Please try again.');
+      setError('Failed to load analytics data: ' + (err.message || 'Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -54,7 +85,18 @@ const AnalyticsPage = () => {
         
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 mb-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-medium text-gray-800 dark:text-white">Garden Performance</h2>
+            <div>
+              <h2 className="text-lg font-medium text-gray-800 dark:text-white">Garden Performance Summary</h2>
+              <div className={`flex items-center text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'} mt-1`}>
+                <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+                Real-time data from {analyticsData?.summary?.dataPoints || 0} sensor readings
+                {analyticsData?.summary?.dataPoints > 0 && (
+                  <span className="ml-2">
+                    • Last updated: {new Date().toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+            </div>
             <div className="inline-flex rounded-md shadow-sm" role="group">
               <button className="px-4 py-2 text-sm font-medium rounded-l-md bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200">
                 Week
@@ -124,8 +166,15 @@ const AnalyticsPage = () => {
           <svg className="h-12 w-12 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
-          <p className="text-gray-500 dark:text-gray-400">No analytics data available</p>
-          <p className="text-gray-400 dark:text-gray-500 text-sm">Connect your sensors and start monitoring to see analytics</p>
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No Analytics Data Available</h3>
+          <p className="text-gray-500 dark:text-gray-400 mb-4">Connect your sensors and start monitoring to see analytics</p>
+          <div className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
+            <p>💡 <strong>Get started:</strong></p>
+            <p>1. Go to System page and add your ESP32 device</p>
+            <p>2. Create zones for your garden areas</p>
+            <p>3. Use the debug section to generate test sensor data</p>
+            <p>4. Return here to see your analytics</p>
+          </div>
         </div>
       </div>
     );
@@ -136,7 +185,12 @@ const AnalyticsPage = () => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-      <h1 className="text-2xl font-semibold text-gray-800 dark:text-white">Analytics & Insights</h1>
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-800 dark:text-white">Analytics & Insights</h1>
+          <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            Real-time data summary from your garden sensors and irrigation system
+          </p>
+        </div>
         <button 
           onClick={handleRefresh}
           className="p-2 rounded-lg transition-colors bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600"
@@ -181,46 +235,172 @@ const AnalyticsPage = () => {
           <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Water Usage</div>
             <div className="mt-1 flex items-baseline">
-              <div className="text-2xl font-semibold text-gray-900 dark:text-white">{summary.totalWaterUsage}L</div>
-              <div className="ml-2 text-sm text-green-600 dark:text-green-400">
-                {summary.totalWaterUsage > 0 ? '-15% vs avg' : 'No data'}
+              <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                {summary.totalWaterUsage > 0 ? `${summary.totalWaterUsage}L` : 'N/A'}
               </div>
+              <div className="ml-2 text-sm text-green-600 dark:text-green-400">
+                {summary.totalWaterUsage > 0 ? `${period === 'week' ? 'This week' : 'This month'}` : 'No data'}
+              </div>
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              From {waterUsageByZone.length} zones
             </div>
           </div>
           
           <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Water Savings</div>
             <div className="mt-1 flex items-baseline">
-              <div className="text-2xl font-semibold text-gray-900 dark:text-white">{summary.totalWaterSaved}L</div>
-              <div className="ml-2 text-sm text-green-600 dark:text-green-400">
-                {summary.totalWaterSaved > 0 ? '+8% vs last month' : 'No data'}
+              <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                {summary.totalWaterSaved > 0 ? `${summary.totalWaterSaved}L` : 'N/A'}
               </div>
+              <div className="ml-2 text-sm text-green-600 dark:text-green-400">
+                {summary.totalWaterSaved > 0 ? 'Smart irrigation' : 'No data'}
+              </div>
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              vs traditional watering
             </div>
           </div>
           
           <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Avg. Soil Moisture</div>
             <div className="mt-1 flex items-baseline">
-              <div className="text-2xl font-semibold text-gray-900 dark:text-white">{summary.avgMoisture}%</div>
-              <div className="ml-2 text-sm text-green-600 dark:text-green-400">
+              <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                {summary.avgMoisture > 0 ? `${summary.avgMoisture}%` : 'N/A'}
+              </div>
+              <div className={`ml-2 text-sm ${
+                summary.avgMoisture >= 40 && summary.avgMoisture <= 60 
+                  ? 'text-green-600 dark:text-green-400' 
+                  : summary.avgMoisture > 0 
+                    ? 'text-yellow-600 dark:text-yellow-400'
+                    : 'text-gray-600 dark:text-gray-400'
+              }`}>
                 {summary.avgMoisture >= 40 && summary.avgMoisture <= 60 ? 'Optimal' : 
                  summary.avgMoisture > 0 ? 'Needs attention' : 'No data'}
               </div>
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              From {summary.dataPoints} readings
             </div>
           </div>
           
           <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Plant Health Score</div>
             <div className="mt-1 flex items-baseline">
-              <div className="text-2xl font-semibold text-gray-900 dark:text-white">{summary.avgHealthScore}/100</div>
-              <div className="ml-2 text-sm text-green-600 dark:text-green-400">
-                {summary.avgHealthScore > 0 ? '+5 pts' : 'No data'}
+              <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                {summary.avgHealthScore > 0 ? `${summary.avgHealthScore}/100` : 'N/A'}
               </div>
+              <div className={`ml-2 text-sm ${
+                summary.avgHealthScore >= 80 
+                  ? 'text-green-600 dark:text-green-400'
+                  : summary.avgHealthScore >= 60
+                    ? 'text-yellow-600 dark:text-yellow-400'
+                    : summary.avgHealthScore > 0
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-gray-600 dark:text-gray-400'
+              }`}>
+                {summary.avgHealthScore >= 80 ? 'Excellent' :
+                 summary.avgHealthScore >= 60 ? 'Good' :
+                 summary.avgHealthScore > 0 ? 'Poor' : 'No data'}
+              </div>
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Across {summary.zones} zones
             </div>
           </div>
         </div>
       </div>
 
+      {/* Recent Activity and System Status */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Recent Activity Summary */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+          <h2 className="text-lg font-medium text-gray-800 dark:text-white mb-4">Recent Activity</h2>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div className="flex items-center">
+                <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
+                <span className="text-sm text-gray-700 dark:text-gray-300">Sensor Readings</span>
+              </div>
+              <span className="text-sm font-medium text-gray-900 dark:text-white">
+                {summary.dataPoints} readings
+              </span>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div className="flex items-center">
+                <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
+                <span className="text-sm text-gray-700 dark:text-gray-300">Active Zones</span>
+              </div>
+              <span className="text-sm font-medium text-gray-900 dark:text-white">
+                {summary.zones} zones
+              </span>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div className="flex items-center">
+                <div className="w-2 h-2 bg-purple-500 rounded-full mr-3"></div>
+                <span className="text-sm text-gray-700 dark:text-gray-300">Water Sessions</span>
+              </div>
+              <span className="text-sm font-medium text-gray-900 dark:text-white">
+                {waterUsageByZone.reduce((sum, zone) => sum + (zone.sessions || 0), 0)} sessions
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* System Status */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+          <h2 className="text-lg font-medium text-gray-800 dark:text-white mb-4">System Status</h2>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div className="flex items-center">
+                <div className={`w-2 h-2 rounded-full mr-3 ${
+                  summary.dataPoints > 0 ? 'bg-green-500' : 'bg-red-500'
+                }`}></div>
+                <span className="text-sm text-gray-700 dark:text-gray-300">Data Collection</span>
+              </div>
+              <span className={`text-sm font-medium ${
+                summary.dataPoints > 0 
+                  ? 'text-green-600 dark:text-green-400' 
+                  : 'text-red-600 dark:text-red-400'
+              }`}>
+                {summary.dataPoints > 0 ? 'Active' : 'Inactive'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div className="flex items-center">
+                <div className={`w-2 h-2 rounded-full mr-3 ${
+                  summary.avgMoisture >= 30 && summary.avgMoisture <= 70 ? 'bg-green-500' : 'bg-yellow-500'
+                }`}></div>
+                <span className="text-sm text-gray-700 dark:text-gray-300">Moisture Levels</span>
+              </div>
+              <span className={`text-sm font-medium ${
+                summary.avgMoisture >= 30 && summary.avgMoisture <= 70
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-yellow-600 dark:text-yellow-400'
+              }`}>
+                {summary.avgMoisture >= 30 && summary.avgMoisture <= 70 ? 'Normal' : 'Attention'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <div className="flex items-center">
+                <div className={`w-2 h-2 rounded-full mr-3 ${
+                  summary.avgHealthScore >= 70 ? 'bg-green-500' : 'bg-orange-500'
+                }`}></div>
+                <span className="text-sm text-gray-700 dark:text-gray-300">Plant Health</span>
+              </div>
+              <span className={`text-sm font-medium ${
+                summary.avgHealthScore >= 70
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-orange-600 dark:text-orange-400'
+              }`}>
+                {summary.avgHealthScore >= 70 ? 'Healthy' : 'Monitor'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Water Usage By Zone Chart */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
@@ -246,7 +426,13 @@ const AnalyticsPage = () => {
           </div>
           ) : (
             <div className="h-64 flex items-center justify-center text-gray-500 dark:text-gray-400">
-              No water usage data available
+              <div className="text-center">
+                <svg className="h-12 w-12 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <p className="font-medium">No water usage data available</p>
+                <p className="text-sm mt-1">Water usage will appear here once irrigation starts</p>
+              </div>
             </div>
           )}
         </div>
@@ -277,7 +463,13 @@ const AnalyticsPage = () => {
           </div>
           ) : (
             <div className="h-64 flex items-center justify-center text-gray-500 dark:text-gray-400">
-              No water savings data available
+              <div className="text-center">
+                <svg className="h-12 w-12 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <p className="font-medium">No water savings data available</p>
+                <p className="text-sm mt-1">Savings data will show after some irrigation activity</p>
+              </div>
             </div>
           )}
         </div>
@@ -315,7 +507,13 @@ const AnalyticsPage = () => {
           </div>
           ) : (
             <div className="h-64 flex items-center justify-center text-gray-500 dark:text-gray-400">
-              No moisture data available
+              <div className="text-center">
+                <svg className="h-12 w-12 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <p className="font-medium">No moisture data available</p>
+                <p className="text-sm mt-1">Connect sensors to see moisture distribution</p>
+              </div>
             </div>
           )}
         </div>
@@ -355,7 +553,13 @@ const AnalyticsPage = () => {
           </div>
           ) : (
             <div className="h-64 flex items-center justify-center text-gray-500 dark:text-gray-400">
-              No health score data available
+              <div className="text-center">
+                <svg className="h-12 w-12 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <p className="font-medium">No health score data available</p>
+                <p className="text-sm mt-1">Health scores calculated from sensor readings</p>
+              </div>
             </div>
           )}
         </div>

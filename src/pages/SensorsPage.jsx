@@ -18,6 +18,7 @@ const SensorsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [timeframe, setTimeframe] = useState('day'); // day, week, month
+  const [realtimeSubscription, setRealtimeSubscription] = useState(null);
 
   // Load sensors from Supabase
   const loadSensors = async () => {
@@ -29,15 +30,17 @@ const SensorsPage = () => {
       // Transform devices to sensor format
       const transformedSensors = devices.map(device => ({
         id: device.id,
-        name: device.name,
+        name: device.name || device.device_id || 'Unnamed Device',
         zone: device.zone_id || 'Unassigned',
-        status: device.status,
-        battery: device.battery_level || 100 // Default to 100% if not provided
+        status: device.status || 'offline',
+        battery: device.battery_level || 100, // Default to 100% if not provided
+        device_id: device.device_id,
+        last_seen: device.last_seen
       }));
 
       setSensors(transformedSensors);
 
-      // Set the first sensor as selected by default
+      // Set the first sensor as selected by default if none is selected
       if (transformedSensors.length > 0 && !selectedSensor) {
         setSelectedSensor(transformedSensors[0].id);
       }
@@ -70,19 +73,19 @@ const SensorsPage = () => {
 
       const data = await DataService.getSensorDataForCharts(hours);
       
-      // Filter data for selected sensor
-      const filteredData = data.filter(item => {
-        // Find the device for this data point
-        const device = sensors.find(sensor => sensor.id === item.device_id);
-        return device && device.id === sensorId;
-      });
+      // Filter data for selected sensor if sensorId is provided
+      const filteredData = sensorId ? data.filter(item => {
+        // Check if the data belongs to the selected device
+        return item.device_id === sensorId;
+      }) : data;
 
       // Transform data for charts
       const transformedData = filteredData.map(item => ({
         time: formatTime(item.timestamp, timeframe),
-        temperature: item.temperature,
-        humidity: item.humidity,
-        soil_moisture: item.soil_moisture
+        temperature: parseFloat(item.temperature) || 0,
+        humidity: parseFloat(item.humidity) || 0,
+        soil_moisture: parseFloat(item.soil_moisture) || 0,
+        device_id: item.device_id
       }));
 
       setSensorData(transformedData);
@@ -109,6 +112,18 @@ const SensorsPage = () => {
 
   useEffect(() => {
     loadSensors();
+    
+    // Set up real-time subscription for sensor data
+    const subscription = DataService.subscribeToSensorData(handleRealtimeUpdate);
+    
+    setRealtimeSubscription(subscription);
+    
+    // Cleanup subscription on unmount
+    return () => {
+      if (subscription) {
+        DataService.unsubscribe(subscription);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -116,7 +131,7 @@ const SensorsPage = () => {
     if (selectedSensor) {
       loadSensorData(selectedSensor, timeframe);
     }
-  }, [selectedSensor, timeframe, sensors]);
+  }, [selectedSensor, timeframe]);
 
   // Function to refresh data
   const handleRefresh = () => {
@@ -126,21 +141,34 @@ const SensorsPage = () => {
     }
   };
 
-  const simulateSensorData = async () => {
-    try {
-      await DataService.simulateSensorData();
-      
-      // Refresh data after simulation
-      handleRefresh();
-      
-      // Show success message
-      alert('Sensor data generated successfully!');
-      
-    } catch (err) {
-      console.error('Error generating sensor data:', err);
-      setError('Failed to generate sensor data: ' + err.message);
+  // Handle real-time sensor data updates
+  const handleRealtimeUpdate = (payload) => {
+    console.log('Real-time sensor data update:', payload);
+    
+    // If the update is for the currently selected sensor, refresh the chart data
+    if (payload.new && payload.new.device_id === selectedSensor) {
+      console.log('Updating chart data for selected sensor');
+      loadSensorData(selectedSensor, timeframe);
+    }
+    
+    // Update device status and last seen time
+    if (payload.new && payload.new.device_id) {
+      setSensors(prevSensors => 
+        prevSensors.map(sensor => {
+          if (sensor.id === payload.new.device_id) {
+            return {
+              ...sensor,
+              status: 'online',
+              last_seen: payload.new.timestamp || new Date().toISOString()
+            };
+          }
+          return sensor;
+        })
+      );
     }
   };
+
+
 
   const getSensorStatusClass = (status) => {
     switch (status) {
@@ -164,6 +192,12 @@ const SensorsPage = () => {
       <div className="flex justify-between items-center">
         <h1 className={`text-2xl font-semibold ${isDark ? 'text-white' : 'text-gray-800'}`}>Sensors</h1>
         <div className="flex items-center space-x-3">
+          <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+            isDark ? 'bg-green-900 bg-opacity-40 text-green-400' : 'bg-green-100 text-green-800'
+          }`}>
+            <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+            Live Data
+          </div>
           <Button 
             onClick={handleRefresh}
             variant="secondary"
@@ -224,9 +258,9 @@ const SensorsPage = () => {
               </Select>
             </div>
             
-            <Button onClick={simulateSensorData} variant="primary">
-              Simulate Data
-            </Button>
+            <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              Real-time data from ESP32 devices
+            </div>
           </div>
 
           {selectedSensor ? (
@@ -238,8 +272,11 @@ const SensorsPage = () => {
                     .filter(sensor => sensor.id === selectedSensor)
                     .map(sensor => (
                       <div key={sensor.id} className="md:col-span-1">
-                        <h3 className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Sensor</h3>
+                        <h3 className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Device</h3>
                         <p className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{sensor.name}</p>
+                        {sensor.device_id && (
+                          <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>ID: {sensor.device_id}</p>
+                        )}
                       </div>
                     ))}
                   
@@ -266,12 +303,12 @@ const SensorsPage = () => {
                   </div>
                   
                   <div className="md:col-span-1">
-                    <h3 className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Zone</h3>
+                    <h3 className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Last Seen</h3>
                     {sensors
                       .filter(sensor => sensor.id === selectedSensor)
                       .map(sensor => (
-                        <p key={sensor.id} className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                          {sensor.zone}
+                        <p key={sensor.id} className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                          {sensor.last_seen ? new Date(sensor.last_seen).toLocaleString() : 'Never'}
                         </p>
                       ))}
                   </div>
@@ -400,9 +437,14 @@ const SensorsPage = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
                 <h3 className={`text-lg font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>No sensor selected</h3>
-                <p className={`${isDark ? 'text-gray-400' : 'text-gray-500'} mb-4`}>Select a sensor from the dropdown to view its data</p>
+                <p className={`${isDark ? 'text-gray-400' : 'text-gray-500'} mb-4`}>
+                  {sensors.length === 0 
+                    ? 'No ESP32 devices found. Make sure your devices are connected and configured.'
+                    : 'Select a sensor from the dropdown to view real-time data'
+                  }
+                </p>
                 <Button onClick={handleRefresh} variant="primary">
-                  Refresh Sensors
+                  {sensors.length === 0 ? 'Refresh Devices' : 'Refresh Sensors'}
                 </Button>
               </div>
             </Card>

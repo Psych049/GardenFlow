@@ -1,17 +1,19 @@
 // src/components/Dashboard.jsx
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import StatsCard from '../components/StatsCard';
-import WeatherPanel from '../components/WeatherPanel';
-import AlertsPanel from '../components/AlertsPanel';
-import TemperatureChart from '../components/charts/TemperatureChart';
-import MoistureHumidityChart from '../components/charts/MoistureHumidityChart';
-import PlantZonesPanel from '../components/PlantZonesPanel';
-import PlantRecommendationsPanel from '../components/PlantRecommendationsPanel';
 import DataService from '../services/dataService';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
+
+// Lazy load heavy components
+const WeatherPanel = React.lazy(() => import('../components/WeatherPanel'));
+const AlertsPanel = React.lazy(() => import('../components/AlertsPanel'));
+const TemperatureChart = React.lazy(() => import('../components/charts/TemperatureChart'));
+const MoistureHumidityChart = React.lazy(() => import('../components/charts/MoistureHumidityChart'));
+const PlantZonesPanel = React.lazy(() => import('../components/PlantZonesPanel'));
+const PlantRecommendationsPanel = React.lazy(() => import('../components/PlantRecommendationsPanel'));
 
 
 const Dashboard = () => {
@@ -29,8 +31,12 @@ const Dashboard = () => {
   const loadDashboardData = useCallback(async () => {
     // Always attempt to load data, but handle auth errors gracefully
     try {
-      setLoading(true);
       setError(null);
+      
+      // Don't set loading to true if we already have data (for refresh)
+      if (stats.length === 0) {
+        setLoading(true);
+      }
       
       const dashboardStats = await DataService.getDashboardStats();
       
@@ -43,22 +49,24 @@ const Dashboard = () => {
       setLastUpdated(new Date());
     } catch (err) {
       console.error('Error loading dashboard data:', err);
-      // Don't set error state that would hide the dashboard
-      // setError('Failed to load dashboard data. Please check your connection and try again.');
+      // Show error only if we have no existing data
+      if (stats.length === 0) {
+        setError('Unable to load dashboard data. Using cached data if available.');
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [stats.length]);
 
-  // Auto-refresh effect
+  // Auto-refresh effect with reduced frequency
   useEffect(() => {
     loadDashboardData();
     
-    // Set up auto-refresh every 30 seconds
+    // Set up auto-refresh every 60 seconds (reduced from 30s)
     const interval = setInterval(() => {
       setRefreshCount(prev => prev + 1);
       loadDashboardData();
-    }, 30000);
+    }, 60000);
     
     return () => clearInterval(interval);
   }, [loadDashboardData]);
@@ -80,8 +88,8 @@ const Dashboard = () => {
     return `${Math.floor(diff / 3600)}h ago`;
   }, [lastUpdated]);
 
-  // Show loading state only during initial load
-  if (authLoading) {
+  // Show loading state only during initial load or when no data
+  if (authLoading || (loading && stats.length === 0)) {
     return (
       <div className="space-y-6 max-w-full animate-fade-in" role="main" aria-label="Garden Dashboard">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -181,17 +189,31 @@ const Dashboard = () => {
         </div>
       </section>
 
-      {/* Weather Panel */}
+      {/* Weather Panel - Load async */}
       <section aria-label="Weather Information">
-        <WeatherPanel />
+        <Suspense fallback={
+          <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-xl shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'} animate-pulse`}>
+            <div className="h-4 bg-gray-300 rounded w-32 mb-4"></div>
+            <div className="h-20 bg-gray-300 rounded"></div>
+          </div>
+        }>
+          <WeatherPanel />
+        </Suspense>
       </section>
 
-      {/* Alerts */}
+      {/* Alerts - Load async */}
       <section aria-label="System Alerts">
-        <AlertsPanel />
+        <Suspense fallback={
+          <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-xl shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'} animate-pulse`}>
+            <div className="h-4 bg-gray-300 rounded w-32 mb-4"></div>
+            <div className="h-16 bg-gray-300 rounded"></div>
+          </div>
+        }>
+          <AlertsPanel />
+        </Suspense>
       </section>
 
-      {/* Charts Section - Improved Responsive Layout */}
+      {/* Charts Section - Improved Responsive Layout with Lazy Loading */}
       <section aria-label="Sensor Data Charts">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
           <Card>
@@ -200,7 +222,16 @@ const Dashboard = () => {
               Temperature Trends (24h)
             </h2>
             <div className="h-64 sm:h-80">
-              <TemperatureChart />
+              <Suspense fallback={
+                <div className={`h-full flex items-center justify-center ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded animate-pulse`}>
+                  <div className="text-center">
+                    <div className={`h-8 w-8 mx-auto mb-2 rounded ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}></div>
+                    <div className={`h-4 w-24 mx-auto rounded ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}></div>
+                  </div>
+                </div>
+              }>
+                <TemperatureChart />
+              </Suspense>
             </div>
           </Card>
           <Card>
@@ -209,17 +240,48 @@ const Dashboard = () => {
               Moisture & Humidity Trends (24h)
             </h2>
             <div className="h-64 sm:h-80">
-              <MoistureHumidityChart />
+              <Suspense fallback={
+                <div className={`h-full flex items-center justify-center ${isDark ? 'bg-gray-700' : 'bg-gray-100'} rounded animate-pulse`}>
+                  <div className="text-center">
+                    <div className={`h-8 w-8 mx-auto mb-2 rounded ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}></div>
+                    <div className={`h-4 w-24 mx-auto rounded ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}></div>
+                  </div>
+                </div>
+              }>
+                <MoistureHumidityChart />
+              </Suspense>
             </div>
           </Card>
         </div>
       </section>
 
-      {/* Plant Zones & Recommendations - Same Column Layout */}
+      {/* Plant Zones & Recommendations - Same Column Layout with Lazy Loading */}
       <section aria-label="Plant Management">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
-          <PlantZonesPanel />
-          <PlantRecommendationsPanel />
+          <Suspense fallback={
+            <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-xl shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'} animate-pulse`}>
+              <div className="h-4 bg-gray-300 rounded w-32 mb-4"></div>
+              <div className="space-y-3">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="h-16 bg-gray-300 rounded"></div>
+                ))}
+              </div>
+            </div>
+          }>
+            <PlantZonesPanel />
+          </Suspense>
+          <Suspense fallback={
+            <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} p-6 rounded-xl shadow-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'} animate-pulse`}>
+              <div className="h-4 bg-gray-300 rounded w-32 mb-4"></div>
+              <div className="space-y-3">
+                {[1, 2].map(i => (
+                  <div key={i} className="h-20 bg-gray-300 rounded"></div>
+                ))}
+              </div>
+            </div>
+          }>
+            <PlantRecommendationsPanel />
+          </Suspense>
         </div>
       </section>
     </div>

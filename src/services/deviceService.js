@@ -3,7 +3,7 @@ import { supabase, handleSupabaseError } from '../lib/supabase';
 // Device Service for managing ESP32 devices with real-time capabilities
 export class DeviceService {
   
-  // Fetch all devices for the current user
+  // Fetch all devices for the current user with real-time status checking
   static async fetchDevices() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -21,7 +21,19 @@ export class DeviceService {
         throw handledError;
       }
       
-      return data || [];
+      // Check device connectivity status based on last_seen timestamp
+      const devicesWithRealStatus = (data || []).map(device => {
+        const realStatus = this.calculateDeviceStatus(device.last_seen, device.status);
+        return {
+          ...device,
+          status: realStatus,
+          // Keep original status for comparison
+          original_status: device.status
+        };
+      });
+      
+      console.log('Fetched devices with status:', devicesWithRealStatus.map(d => ({ name: d.name, status: d.status, last_seen: d.last_seen })));
+      return devicesWithRealStatus;
     } catch (error) {
       console.error('Error in fetchDevices:', error);
       return [];
@@ -82,6 +94,34 @@ export class DeviceService {
     }
   }
 
+  // Calculate device status based on last_seen timestamp
+  static calculateDeviceStatus(lastSeen, currentStatus) {
+    console.log('calculateDeviceStatus called with:', { lastSeen, currentStatus });
+    
+    if (!lastSeen) {
+      console.log('No last_seen timestamp, returning offline');
+      return 'offline';
+    }
+    
+    const now = new Date();
+    const lastSeenDate = new Date(lastSeen);
+    const diffMinutes = Math.floor((now - lastSeenDate) / (1000 * 60));
+    
+    console.log('Time difference:', { now, lastSeenDate, diffMinutes });
+    
+    // Consider device offline if no heartbeat for more than 5 minutes (more realistic threshold)
+    const OFFLINE_THRESHOLD_MINUTES = 5;
+    
+    if (diffMinutes > OFFLINE_THRESHOLD_MINUTES) {
+      console.log('Device is offline (threshold exceeded)');
+      return 'offline';
+    }
+    
+    // If within threshold, device is considered online
+    console.log('Device is within threshold, returning online');
+    return 'online';
+  }
+
   // Update device status (heartbeat)
   static async updateDeviceStatus(deviceId, status, ipAddress = null) {
     try {
@@ -93,6 +133,8 @@ export class DeviceService {
       if (ipAddress) {
         updateData.ip_address = ipAddress;
       }
+
+      console.log('Updating device status:', { deviceId, status, updateData });
 
       const { data, error } = await supabase
         .from('devices')
@@ -107,10 +149,44 @@ export class DeviceService {
         throw handledError;
       }
       
+      console.log('Device status updated successfully:', data);
       return data;
     } catch (error) {
       console.error('Error in updateDeviceStatus:', error);
       throw error;
+    }
+  }
+
+  // Mark devices as offline if they haven't been seen recently
+  static async updateOfflineDevices() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // Use same threshold as calculateDeviceStatus
+      const OFFLINE_THRESHOLD_MINUTES = 5;
+      const thresholdTime = new Date(Date.now() - OFFLINE_THRESHOLD_MINUTES * 60 * 1000).toISOString();
+
+      console.log('Updating devices offline since:', thresholdTime);
+
+      const { data, error } = await supabase
+        .from('devices')
+        .update({ status: 'offline' })
+        .eq('user_id', user.id)
+        .eq('status', 'online')
+        .lt('last_seen', thresholdTime)
+        .select();
+
+      if (error) {
+        console.error('Error updating offline devices:', error);
+        return [];
+      }
+      
+      console.log('Updated offline devices:', data?.length || 0);
+      return data || [];
+    } catch (error) {
+      console.error('Error in updateOfflineDevices:', error);
+      return [];
     }
   }
 
